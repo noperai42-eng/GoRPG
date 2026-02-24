@@ -273,6 +273,12 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleVillageTakeItem(session, cmd)
 	case StateVillageHealGuard:
 		return e.handleVillageHealGuard(session, cmd)
+	case StateGuideMain:
+		return e.handleGuideMain(session, cmd)
+	case StateGuideCombat, StateGuideSkills, StateGuideVillage,
+		StateGuideCrafting, StateGuideMonsterDrops, StateGuideAutoPlay,
+		StateGuideQuests:
+		return e.handleGuideTopic(session, cmd)
 	default:
 		return ErrorResponse(fmt.Sprintf("Unknown state: %s", session.State))
 	}
@@ -357,23 +363,27 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 	}
 
 	options := []MenuOption{
-		Opt("0", "Character Create"),
 		Opt("1", "Harvest"),
-		Opt("2", "Search for Locations"),
 		Opt("3", "Hunt"),
 		Opt("4", "Discovered Locations"),
 		Opt("5", "Player Stats"),
 		Opt("6", "Load Save"),
+		Opt("7", "Player Guide"),
 		Opt("8", "AUTO-PLAY MODE"),
 		Opt("9", "Quest Log"),
 		Opt("10", "Village Management"),
 		Opt("exit", "Exit Game"),
 	}
 
+	ps := MakePlayerStateWithLocations(session.Player, session.GameState)
+	if ps != nil {
+		ps.ActiveQuests = MakeQuestViews(session.Player, session.GameState)
+	}
+
 	return GameResponse{
 		Type:     "menu",
 		Messages: msgs,
-		State:    &StateData{Screen: "main_menu", Player: MakePlayerState(session.Player)},
+		State:    &StateData{Screen: "main_menu", Player: ps},
 		Options:  options,
 	}
 }

@@ -1,0 +1,177 @@
+/* ===== Village Screen ===== */
+.village-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.village-header h2 {
+    font-size: 1.2rem;
+}
+
+.village-header-stats {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Village Sub-tabs */
+.village-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Overview */
+.village-overview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.village-building-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.4rem;
+}
+
+.village-building {
+    padding: 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+/* Villagers */
+.villager-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.villager-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.villager-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.villager-name { font-weight: 700; }
+.villager-role { font-size: 0.75rem; color: var(--text-secondary); }
+
+.villager-task {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Guards */
+.guard-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.5rem;
+}
+
+.guard-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+}
+
+.guard-card.injured {
+    border-color: var(--color-damage);
+    opacity: 0.75;
+}
+
+.guard-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.guard-card-name { font-weight: 700; font-size: 0.9rem; }
+.guard-card-level { font-size: 0.75rem; color: var(--text-secondary); }
+
+.guard-card-stats {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.4rem;
+}
+
+/* Crafting */
+.crafting-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.recipe-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.5rem;
+}
+
+.recipe-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+}
+
+.recipe-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem; }
+
+.recipe-cost {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.recipe-cost-item { color: var(--text-secondary); }
+.recipe-cost-item.insufficient { color: var(--color-error); }
+
+/* Defenses */
+.defense-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.5rem;
+}
+
+.defense-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.defense-name { font-weight: 700; font-size: 0.9rem; }
+.defense-level { font-size: 0.75rem; color: var(--text-secondary); }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+    .village-overview { grid-template-columns: 1fr; }
+    .guard-list { grid-template-columns: 1fr; }
+    .recipe-grid { grid-template-columns: 1fr; }
+}

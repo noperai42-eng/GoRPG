@@ -1,0 +1,87 @@
+/* ===== CSS Custom Properties ===== */
+:root {
+    /* Background */
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-panel: #1c2333;
+    --bg-card: #21283b;
+    --bg-hover: #292e3e;
+    --bg-input: #0d1117;
+
+    /* Borders */
+    --border-color: #30363d;
+    --border-focus: #58a6ff;
+    --border-subtle: #21262d;
+
+    /* Text */
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --text-link: #58a6ff;
+
+    /* Accent colors */
+    --accent: #e94560;
+    --accent-hover: #ff6b81;
+    --accent-subtle: rgba(233, 69, 96, 0.15);
+    --secondary: #6e40c9;
+    --secondary-hover: #8957e5;
+
+    /* Game message colors */
+    --color-damage: #ff7b72;
+    --color-heal: #3fb950;
+    --color-buff: #d29922;
+    --color-debuff: #f85149;
+    --color-loot: #f0883e;
+    --color-system: #58a6ff;
+    --color-narrative: #e6edf3;
+    --color-error: #f85149;
+    --color-levelup: #d2a8ff;
+    --color-combat: #79c0ff;
+
+    /* Resource bars */
+    --hp-high: #3fb950;
+    --hp-mid: #d29922;
+    --hp-low: #f85149;
+    --hp-critical: #da3633;
+    --mp-color: #58a6ff;
+    --sp-color: #d29922;
+    --xp-color: #8957e5;
+
+    /* Rarity colors */
+    --rarity-1: #8b949e;
+    --rarity-2: #3fb950;
+    --rarity-3: #58a6ff;
+    --rarity-4: #bc8cff;
+    --rarity-5: #d29922;
+
+    /* Location type colors */
+    --loc-mix: #f85149;
+    --loc-ruin: #8b949e;
+    --loc-resource: #3fb950;
+    --loc-trade: #d29922;
+    --loc-base: #58a6ff;
+
+    /* Sizes */
+    --nav-height: 48px;
+    --resource-bar-height: 36px;
+    --toast-width: 360px;
+    --sidebar-width: 280px;
+    --bar-height: 22px;
+    --bar-height-sm: 16px;
+    --bar-height-lg: 28px;
+
+    /* Font */
+    --font-game: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-normal: 250ms ease;
+    --transition-slow: 400ms ease;
+
+    /* Z-index layers */
+    --z-nav: 100;
+    --z-modal: 200;
+    --z-toast: 300;
+    --z-combat: 150;
+}

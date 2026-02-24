@@ -121,6 +121,7 @@ type Character struct {
 	EquipmentMap       map[int]Item           `json:"equipment_map"`
 	ResourceStorageMap map[string]Resource    `json:"resource_storage_map"`
 	KnownLocations     []string               `json:"known_locations"`
+	LockedLocations    []string               `json:"locked_locations"`
 	BuiltBuildings     []Building             `json:"built_buildings"`
 	LearnedSkills      []Skill                `json:"learned_skills"`
 	StatusEffects      []StatusEffect         `json:"status_effects"`

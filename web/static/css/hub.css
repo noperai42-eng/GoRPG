@@ -1,0 +1,184 @@
+/* ===== Hub Screen ===== */
+.hub-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    height: 100%;
+}
+
+/* Left Panel - Character */
+.hub-character {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.hub-char-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.hub-char-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.hub-char-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.hub-char-level {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Equipment Grid */
+.equipment-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+}
+
+.equip-slot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: default;
+    transition: border-color var(--transition-fast);
+    min-width: 0;
+}
+
+.equip-slot:hover { border-color: var(--text-muted); }
+
+.equip-slot-name {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    width: 56px;
+    flex-shrink: 0;
+}
+
+.equip-slot-item {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.equip-slot-empty { color: var(--text-muted); font-style: italic; }
+
+.equip-slot.rarity-1 { border-left: 2px solid var(--rarity-1); }
+.equip-slot.rarity-2 { border-left: 2px solid var(--rarity-2); }
+.equip-slot.rarity-3 { border-left: 2px solid var(--rarity-3); }
+.equip-slot.rarity-4 { border-left: 2px solid var(--rarity-4); }
+.equip-slot.rarity-5 { border-left: 2px solid var(--rarity-5); }
+
+/* Skills List */
+.skill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.skill-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.7rem;
+}
+
+.skill-badge-name { color: var(--text-primary); }
+.skill-badge-cost { color: var(--text-muted); font-size: 0.65rem; }
+
+/* Right Panel - Actions */
+.hub-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.hub-quick-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.hub-action-btn {
+    padding: 0.8rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: var(--font-game);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+    text-align: center;
+}
+
+.hub-action-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.hub-action-btn .action-icon {
+    font-size: 1.2rem;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+/* Resources Grid */
+.resource-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.4rem;
+}
+
+.resource-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.resource-name { color: var(--text-secondary); }
+.resource-count { color: var(--text-primary); font-weight: 600; }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+    .hub-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .equipment-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hub-quick-actions {
+        grid-template-columns: 1fr 1fr;
+    }
+}

@@ -55,6 +55,15 @@ const (
 	StateVillageGiveItem         = "village_give_item"
 	StateVillageTakeItem         = "village_take_item"
 	StateVillageHealGuard        = "village_heal_guard"
+
+	StateGuideMain         = "guide_main"
+	StateGuideCombat       = "guide_combat"
+	StateGuideSkills       = "guide_skills"
+	StateGuideVillage      = "guide_village"
+	StateGuideCrafting     = "guide_crafting"
+	StateGuideMonsterDrops = "guide_monster_drops"
+	StateGuideAutoPlay     = "guide_autoplay"
+	StateGuideQuests       = "guide_quests"
 )
 
 // CombatContext tracks turn-by-turn combat state.
@@ -68,8 +77,9 @@ type CombatContext struct {
 	IsDefending    bool
 	CombatGuards   []models.Guard
 	HasGuards      bool
-	HuntsRemaining int
-	IsAutoPlay     bool
+	GuardianLocationName string // non-empty = fighting a location guardian
+	HuntsRemaining       int
+	IsAutoPlay           bool
 	AutoPlaySpeed  string
 	AutoPlayFights int
 	AutoPlayWins   int

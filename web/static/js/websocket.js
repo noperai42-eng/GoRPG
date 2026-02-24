@@ -1,13 +1,14 @@
 const GameConnection = {
     ws: null,
-    onMessage: null,
-    onClose: null,
     onOpen: null,
+    onClose: null,
     reconnectAttempts: 0,
     maxReconnects: 5,
     reconnectDelay: 2000,
+    _token: null,
 
     connect(token) {
+        this._token = token;
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const url = `${protocol}//${location.host}/ws/game?token=${encodeURIComponent(token)}`;
 
@@ -21,7 +22,10 @@ const GameConnection = {
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (this.onMessage) this.onMessage(data);
+                // Route to Alpine store
+                if (Alpine && Alpine.store('game')) {
+                    Alpine.store('game').handleResponse(data);
+                }
             } catch(e) {
                 console.error('Failed to parse message:', e);
             }
@@ -32,7 +36,7 @@ const GameConnection = {
             // Auto-reconnect unless intentionally closed
             if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnects) {
                 this.reconnectAttempts++;
-                setTimeout(() => this.connect(token), this.reconnectDelay * this.reconnectAttempts);
+                setTimeout(() => this.connect(this._token), this.reconnectDelay * this.reconnectAttempts);
             }
         };
 

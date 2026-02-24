@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strconv"
 
+	"rpg-game/pkg/data"
 	"rpg-game/pkg/game"
 	"rpg-game/pkg/models"
 )
@@ -297,6 +298,10 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 			},
 			Options: options,
 		}
+
+	case "6": // Auto-fight: resolve rest of combat automatically
+		combat.Turn-- // undo increment, autoResolveCombat manages its own turns
+		return e.autoResolveCombat(session, msgs)
 
 	case "5": // Flee
 		fleeChance := 50 + (player.Level-mob.Level)*5
@@ -952,6 +957,43 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	// Check quest progress for side effects
 	game.CheckQuestProgress(player, session.GameState)
 
+	// 15% chance to discover a new location during manual combat victory
+	if combat.GuardianLocationName == "" && rand.Intn(100) < 15 {
+		combinedSeen := append([]string{}, player.KnownLocations...)
+		combinedSeen = append(combinedSeen, player.LockedLocations...)
+		discovered := game.SearchLocation(combinedSeen, data.DiscoverableLocations)
+		if discovered != "" {
+			player.LockedLocations = append(player.LockedLocations, discovered)
+			msgs = append(msgs, Msg(fmt.Sprintf("You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+		}
+	}
+
+	// If location guardian, unlock location and return to main menu
+	if combat.GuardianLocationName != "" {
+		locName := combat.GuardianLocationName
+		// Remove from LockedLocations
+		for i, l := range player.LockedLocations {
+			if l == locName {
+				player.LockedLocations = append(player.LockedLocations[:i], player.LockedLocations[i+1:]...)
+				break
+			}
+		}
+		// Add to KnownLocations
+		player.KnownLocations = append(player.KnownLocations, locName)
+		msgs = append(msgs, Msg(fmt.Sprintf("The guardian has been slain! %s is now unlocked!", locName), "narrative"))
+
+		session.GameState.CharactersMap[player.Name] = *player
+		game.WriteGameStateToFile(*session.GameState, session.SaveFile)
+
+		session.State = StateMainMenu
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
+			Options:  BuildMainMenuResponse(session).Options,
+		}
+	}
+
 	// If skill guardian, offer reward choice
 	if mob.IsSkillGuardian {
 		msgs = append(msgs, Msg("SKILL GUARDIAN DEFEATED!", "narrative"))
@@ -1021,6 +1063,27 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 		if village, exists := session.GameState.Villages[player.VillageName]; exists {
 			game.ProcessGuardRecovery(&village)
 			session.GameState.Villages[player.VillageName] = village
+		}
+	}
+
+	// If location guardian, stay locked and return to main menu
+	if combat.GuardianLocationName != "" {
+		msgs = append(msgs, Msg(fmt.Sprintf("The guardian proved too powerful. %s remains locked.", combat.GuardianLocationName), "narrative"))
+
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.ManaRemaining = player.ManaTotal
+		player.StaminaRemaining = player.StaminaTotal
+		player.Resurrections++
+		player.StatusEffects = []models.StatusEffect{}
+		msgs = append(msgs, Msg(fmt.Sprintf("%s has been resurrected. (Resurrection #%d)", player.Name, player.Resurrections), "system"))
+
+		session.GameState.CharactersMap[player.Name] = *player
+		session.State = StateMainMenu
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
+			Options:  BuildMainMenuResponse(session).Options,
 		}
 	}
 
@@ -1199,6 +1262,7 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 	mob.StaminaRemaining = mob.StaminaTotal
 
 	// Preserve hunt tracking and autoplay fields from previous combat
+	guardianLocationName := combat.GuardianLocationName
 	isAutoPlay := combat.IsAutoPlay
 	autoPlaySpeed := combat.AutoPlaySpeed
 	autoPlayFights := combat.AutoPlayFights + 1
@@ -1211,22 +1275,23 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 
 	// Set up new combat context
 	session.Combat = &CombatContext{
-		Mob:            mob,
-		MobLoc:         mobLoc,
-		Location:       location,
-		Turn:           0,
-		Fled:           false,
-		PlayerWon:      false,
-		IsDefending:    false,
-		CombatGuards:   combatGuards,
-		HasGuards:      hasGuards,
-		HuntsRemaining: huntsRemaining,
-		IsAutoPlay:     isAutoPlay,
-		AutoPlaySpeed:  autoPlaySpeed,
-		AutoPlayFights: autoPlayFights,
-		AutoPlayWins:   autoPlayWins,
-		AutoPlayDeaths: autoPlayDeaths,
-		AutoPlayXP:     autoPlayXP,
+		Mob:                  mob,
+		MobLoc:               mobLoc,
+		Location:             location,
+		Turn:                 0,
+		Fled:                 false,
+		PlayerWon:            false,
+		IsDefending:          false,
+		GuardianLocationName: guardianLocationName,
+		CombatGuards:         combatGuards,
+		HasGuards:            hasGuards,
+		HuntsRemaining:       huntsRemaining,
+		IsAutoPlay:           isAutoPlay,
+		AutoPlaySpeed:        autoPlaySpeed,
+		AutoPlayFights:       autoPlayFights,
+		AutoPlayWins:         autoPlayWins,
+		AutoPlayDeaths:       autoPlayDeaths,
+		AutoPlayXP:           autoPlayXP,
 	}
 
 	session.State = StateCombat
@@ -1251,5 +1316,206 @@ func combatActionOptions() []MenuOption {
 		Opt("3", "Use Item"),
 		Opt("4", "Use Skill"),
 		Opt("5", "Flee"),
+		Opt("6", "Auto Fight"),
 	}
+}
+
+// autoResolveCombat runs the current fight to completion using AI for the player.
+func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) GameResponse {
+	combat := session.Combat
+	player := session.Player
+	mob := &combat.Mob
+
+	msgs = append(msgs, Msg("--- AUTO FIGHT ---", "system"))
+
+	for player.HitpointsRemaining > 0 && mob.HitpointsRemaining > 0 {
+		combat.Turn++
+
+		// Safety valve
+		if combat.Turn > 200 {
+			msgs = append(msgs, Msg("Combat timed out!", "combat"))
+			break
+		}
+
+		// Process player status effects
+		for i := len(player.StatusEffects) - 1; i >= 0; i-- {
+			effect := &player.StatusEffects[i]
+			switch effect.Type {
+			case "poison":
+				player.HitpointsRemaining -= effect.Potency
+				msgs = append(msgs, Msg(fmt.Sprintf("%s takes %d poison damage!", player.Name, effect.Potency), "damage"))
+			case "burn":
+				player.HitpointsRemaining -= effect.Potency
+				msgs = append(msgs, Msg(fmt.Sprintf("%s takes %d burn damage!", player.Name, effect.Potency), "damage"))
+			case "regen":
+				player.HitpointsRemaining += effect.Potency
+				if player.HitpointsRemaining > player.HitpointsTotal {
+					player.HitpointsRemaining = player.HitpointsTotal
+				}
+			}
+			effect.Duration--
+			if effect.Duration <= 0 {
+				switch effect.Type {
+				case "buff_attack":
+					player.StatsMod.AttackMod -= effect.Potency
+				case "buff_defense":
+					player.StatsMod.DefenseMod -= effect.Potency
+				}
+				player.StatusEffects = append(player.StatusEffects[:i], player.StatusEffects[i+1:]...)
+			}
+		}
+
+		// Process mob status effects
+		for i := len(mob.StatusEffects) - 1; i >= 0; i-- {
+			effect := &mob.StatusEffects[i]
+			switch effect.Type {
+			case "poison":
+				mob.HitpointsRemaining -= effect.Potency
+			case "burn":
+				mob.HitpointsRemaining -= effect.Potency
+			case "regen":
+				mob.HitpointsRemaining += effect.Potency
+				if mob.HitpointsRemaining > mob.HitpointsTotal {
+					mob.HitpointsRemaining = mob.HitpointsTotal
+				}
+			}
+			effect.Duration--
+			if effect.Duration <= 0 {
+				switch effect.Type {
+				case "buff_attack":
+					mob.StatsMod.AttackMod -= effect.Potency
+				case "buff_defense":
+					mob.StatsMod.DefenseMod -= effect.Potency
+				}
+				mob.StatusEffects = append(mob.StatusEffects[:i], mob.StatusEffects[i+1:]...)
+			}
+		}
+
+		if player.HitpointsRemaining <= 0 || mob.HitpointsRemaining <= 0 {
+			break
+		}
+
+		// Player AI turn (skip if stunned)
+		if !game.IsStunned(player) {
+			decision := game.MakeAIDecision(player, mob, combat.Turn)
+
+			switch decision {
+			case "attack":
+				playerAttack := game.MultiRoll(player.AttackRolls) + player.StatsMod.AttackMod
+				if rand.Intn(100) < 15 {
+					playerAttack *= 2
+					msgs = append(msgs, Msg("*** CRITICAL HIT! ***", "combat"))
+				}
+				mobDef := game.MultiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
+				if playerAttack > mobDef {
+					diff := game.ApplyDamage(playerAttack-mobDef, models.Physical, mob)
+					mob.HitpointsRemaining -= diff
+					msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", player.Name, diff), "damage"))
+				} else {
+					msgs = append(msgs, Msg(fmt.Sprintf("%s's attack missed!", player.Name), "combat"))
+				}
+			case "item":
+				for idx, item := range player.Inventory {
+					if item.ItemType == "consumable" {
+						game.UseConsumableItem(item, player)
+						game.RemoveItemFromInventory(&player.Inventory, idx)
+						msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s!", player.Name, item.Name), "heal"))
+						break
+					}
+				}
+			default:
+				if len(decision) > 6 && decision[:6] == "skill_" {
+					skillName := decision[6:]
+					for _, skill := range player.LearnedSkills {
+						if skill.Name == skillName && skill.ManaCost <= player.ManaRemaining && skill.StaminaCost <= player.StaminaRemaining {
+							player.ManaRemaining -= skill.ManaCost
+							player.StaminaRemaining -= skill.StaminaCost
+							if skill.Damage < 0 {
+								player.HitpointsRemaining += -skill.Damage
+								if player.HitpointsRemaining > player.HitpointsTotal {
+									player.HitpointsRemaining = player.HitpointsTotal
+								}
+								msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s! Heals %d HP!", player.Name, skill.Name, -skill.Damage), "heal"))
+							} else if skill.Damage > 0 {
+								finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, mob)
+								mob.HitpointsRemaining -= finalDamage
+								msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s for %d damage!", player.Name, skill.Name, finalDamage), "damage"))
+							}
+							if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+								if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
+									player.StatusEffects = append(player.StatusEffects, skill.Effect)
+									if skill.Effect.Type == "buff_attack" {
+										player.StatsMod.AttackMod += skill.Effect.Potency
+									} else if skill.Effect.Type == "buff_defense" {
+										player.StatsMod.DefenseMod += skill.Effect.Potency
+									}
+								} else {
+									mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		} else {
+			msgs = append(msgs, Msg(fmt.Sprintf("%s is STUNNED!", player.Name), "debuff"))
+		}
+
+		if mob.HitpointsRemaining <= 0 || player.HitpointsRemaining <= 0 {
+			break
+		}
+
+		// Monster turn (skip if stunned)
+		if !game.IsStunnedMob(mob) {
+			useSkill := len(mob.LearnedSkills) > 0 && rand.Intn(100) < 40
+			if useSkill {
+				skill := mob.LearnedSkills[rand.Intn(len(mob.LearnedSkills))]
+				if skill.ManaCost <= mob.ManaRemaining && skill.StaminaCost <= mob.StaminaRemaining {
+					mob.ManaRemaining -= skill.ManaCost
+					mob.StaminaRemaining -= skill.StaminaCost
+					if skill.Damage < 0 {
+						mob.HitpointsRemaining += -skill.Damage
+						if mob.HitpointsRemaining > mob.HitpointsTotal {
+							mob.HitpointsRemaining = mob.HitpointsTotal
+						}
+					} else if skill.Damage > 0 {
+						playerDef := game.MultiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+						finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, player)
+						if finalDamage > playerDef {
+							player.HitpointsRemaining -= (finalDamage - playerDef)
+						}
+					}
+					if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+						if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
+							mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+						} else {
+							player.StatusEffects = append(player.StatusEffects, skill.Effect)
+						}
+					}
+					msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s!", mob.Name, skill.Name), "combat"))
+					continue
+				}
+			}
+			// Normal attack
+			mobAttack := game.MultiRoll(mob.AttackRolls) + mob.StatsMod.AttackMod
+			if rand.Intn(100) < 10 {
+				mobAttack *= 2
+			}
+			playerDef := game.MultiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+			if mobAttack > playerDef {
+				diff := game.ApplyDamage(mobAttack-playerDef, models.Physical, player)
+				player.HitpointsRemaining -= diff
+				msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", mob.Name, diff), "damage"))
+			}
+		}
+	}
+
+	msgs = append(msgs, Msg(fmt.Sprintf("--- Auto fight ended (Turn %d) ---", combat.Turn), "system"))
+
+	// Resolve outcome
+	if mob.HitpointsRemaining <= 0 {
+		return e.resolveCombatWin(session, msgs)
+	}
+	return e.resolveCombatLoss(session, msgs)
 }

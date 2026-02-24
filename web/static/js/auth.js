@@ -3,7 +3,6 @@ const Auth = {
     username: null,
 
     init() {
-        // Check localStorage for existing token
         this.token = localStorage.getItem('token');
         this.username = localStorage.getItem('username');
     },

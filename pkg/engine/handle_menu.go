@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"strconv"
 
+	"strings"
+
 	"rpg-game/pkg/data"
 	"rpg-game/pkg/game"
 	"rpg-game/pkg/models"
@@ -37,6 +39,9 @@ func (e *Engine) handleInit(session *GameSession) GameResponse {
 			}
 			if c.ActiveQuests == nil {
 				c.ActiveQuests = []string{"quest_1_training"}
+			}
+			if c.LockedLocations == nil {
+				c.LockedLocations = []string{}
 			}
 			gs.CharactersMap[c.Name] = c
 			session.Player = &c
@@ -84,6 +89,9 @@ func (e *Engine) handleCharacterSelect(session *GameSession, cmd GameCommand) Ga
 	if char.ActiveQuests == nil {
 		char.ActiveQuests = []string{"quest_1_training"}
 	}
+	if char.LockedLocations == nil {
+		char.LockedLocations = []string{}
+	}
 	gs.CharactersMap[char.Name] = char
 	session.Player = &char
 
@@ -114,6 +122,7 @@ func (e *Engine) handleCharacterCreate(session *GameSession, cmd GameCommand) Ga
 	}
 	player.ResourceStorageMap = map[string]models.Resource{}
 	player.BuiltBuildings = []models.Building{}
+	player.LockedLocations = []string{}
 	game.GenerateLocationsForNewCharacter(&player)
 
 	gs.CharactersMap[player.Name] = player
@@ -161,20 +170,12 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		}
 
 	case "2":
-		// Search for Locations
-		result := game.SearchLocation(player.KnownLocations, data.DiscoverableLocations)
-		msgs := []GameMessage{}
-		if result != "" {
-			player.KnownLocations = append(player.KnownLocations, result)
-			gs.CharactersMap[player.Name] = *player
-			game.WriteGameStateToFile(*gs, session.SaveFile)
-			msgs = append(msgs, Msg(fmt.Sprintf("Discovered new location: %s!", result), "narrative"))
-		} else {
-			msgs = append(msgs, Msg("No new locations discovered.", "narrative"))
-		}
+		// Locations are now discovered during hunting
 		session.State = StateMainMenu
 		resp := BuildMainMenuResponse(session)
-		resp.Messages = append(msgs, resp.Messages...)
+		resp.Messages = append([]GameMessage{
+			Msg("Locations are now discovered while hunting! Check the Hunt menu for locked locations.", "narrative"),
+		}, resp.Messages...)
 		return resp
 
 	case "3":
@@ -188,11 +189,19 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 			}
 			options = append(options, Opt(locName, fmt.Sprintf("%s (%s, Lv1-%d)", locName, loc.Type, loc.LevelMax)))
 		}
+		// Show locked locations
+		for _, locName := range player.LockedLocations {
+			loc, exists := gs.GameLocations[locName]
+			if !exists {
+				continue
+			}
+			options = append(options, Opt("locked:"+locName, fmt.Sprintf("[LOCKED] %s (%s, Lv1-%d) - Defeat Guardian to Unlock", locName, loc.Type, loc.LevelMax)))
+		}
 		if len(options) == 0 {
 			session.State = StateMainMenu
 			resp := BuildMainMenuResponse(session)
 			resp.Messages = append([]GameMessage{
-				Msg("No huntable locations available! Search for new locations first.", "error"),
+				Msg("No huntable locations available! Keep hunting to discover new locations.", "error"),
 			}, resp.Messages...)
 			return resp
 		}
@@ -234,6 +243,20 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 				msgs = append(msgs, Msg(fmt.Sprintf("  %d Skill Guardian(s) present!", guardianCount), "narrative"))
 			}
 		}
+		// Show locked locations
+		if len(player.LockedLocations) > 0 {
+			msgs = append(msgs, Msg("", "system"))
+			msgs = append(msgs, Msg("=== Locked Locations ===", "system"))
+			for _, locName := range player.LockedLocations {
+				loc, exists := gs.GameLocations[locName]
+				if !exists {
+					msgs = append(msgs, Msg(fmt.Sprintf("[LOCKED] %s (unknown)", locName), "narrative"))
+					continue
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("[LOCKED] %s (%s, Lv1-%d) - Defeat Guardian to Unlock", loc.Name, loc.Type, loc.LevelMax), "narrative"))
+			}
+		}
+
 		return GameResponse{
 			Type:     "menu",
 			Messages: msgs,
@@ -259,6 +282,11 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		// Load Save
 		session.State = StateLoadSave
 		return e.handleLoadSave(session, cmd)
+
+	case "7":
+		// Player Guide
+		session.State = StateGuideMain
+		return e.handleGuideMain(session, GameCommand{Type: "init"})
 
 	case "8":
 		// Auto-Play Speed
@@ -355,6 +383,27 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 	gs := session.GameState
 	player := session.Player
 	locName := cmd.Value
+
+	// Check if this is a locked location (guardian fight)
+	if strings.HasPrefix(locName, "locked:") {
+		actualName := strings.TrimPrefix(locName, "locked:")
+		loc, exists := gs.GameLocations[actualName]
+		if !exists {
+			session.State = StateMainMenu
+			resp := BuildMainMenuResponse(session)
+			resp.Messages = append([]GameMessage{
+				Msg(fmt.Sprintf("Location '%s' not found!", actualName), "error"),
+			}, resp.Messages...)
+			return resp
+		}
+
+		guardian := game.GenerateLocationGuardian(actualName, loc, gs)
+		session.SelectedLocation = actualName
+		session.Combat = &CombatContext{
+			GuardianLocationName: actualName,
+		}
+		return e.startCombat(session, &loc, 0, guardian, 1)
+	}
 
 	loc, exists := gs.GameLocations[locName]
 	if !exists {
@@ -517,15 +566,22 @@ func (e *Engine) startCombat(session *GameSession, location *models.Location, mo
 		player.Resurrections++
 	}
 
+	// Preserve guardian location name if set before startCombat
+	guardianLocName := ""
+	if session.Combat != nil {
+		guardianLocName = session.Combat.GuardianLocationName
+	}
+
 	session.Combat = &CombatContext{
-		Mob:            mob,
-		MobLoc:         mobLoc,
-		Location:       location,
-		Turn:           0,
-		Fled:           false,
-		PlayerWon:      false,
-		IsDefending:    false,
-		HuntsRemaining: huntsRemaining,
+		Mob:                  mob,
+		MobLoc:               mobLoc,
+		Location:             location,
+		Turn:                 0,
+		Fled:                 false,
+		PlayerWon:            false,
+		IsDefending:          false,
+		HuntsRemaining:       huntsRemaining,
+		GuardianLocationName: guardianLocName,
 	}
 
 	// Check for guards for guardian/boss fights
@@ -660,13 +716,7 @@ func buildCombatDisplay(session *GameSession) GameResponse {
 		}
 	}
 
-	options := []MenuOption{
-		Opt("1", "Attack"),
-		Opt("2", "Defend"),
-		Opt("3", "Use Item"),
-		Opt("4", "Use Skill"),
-		Opt("5", "Flee"),
-	}
+	options := combatActionOptions()
 
 	return GameResponse{
 		Type:     "combat",
@@ -728,20 +778,39 @@ func (e *Engine) handleAutoPlaySpeed(session *GameSession, cmd GameCommand) Game
 		AutoPlaySpeed: speed,
 	}
 
-	// Run one auto-play fight
-	mobLoc := rand.Intn(len(huntLocation.Monsters))
-	mob := huntLocation.Monsters[mobLoc]
-	// Copy the mob so we don't modify the location directly during the fight
-	mobCopy := mob
-
-	fightMsgs := e.autoPlayOneFight(session, player, gs, &mobCopy, huntLocation, mobLoc, huntLocationName)
+	// Determine number of fights per batch based on speed
+	fightsPerBatch := 5
+	switch speed {
+	case "slow":
+		fightsPerBatch = 3
+	case "normal":
+		fightsPerBatch = 5
+	case "fast":
+		fightsPerBatch = 10
+	case "turbo":
+		fightsPerBatch = 20
+	}
 
 	msgs := []GameMessage{
-		Msg(fmt.Sprintf("AUTO-PLAY MODE - Speed: %s", speed), "system"),
+		Msg(fmt.Sprintf("AUTO-PLAY MODE - Speed: %s (%d fights)", speed, fightsPerBatch), "system"),
 		Msg(fmt.Sprintf("Hunting at: %s", huntLocationName), "system"),
 		Msg("", "system"),
 	}
-	msgs = append(msgs, fightMsgs...)
+
+	// Run multiple auto-play fights
+	for fight := 0; fight < fightsPerBatch; fight++ {
+		// Re-fetch location in case monsters changed
+		loc := gs.GameLocations[huntLocationName]
+		if len(loc.Monsters) == 0 {
+			break
+		}
+		mobLoc := rand.Intn(len(loc.Monsters))
+		mobCopy := loc.Monsters[mobLoc]
+
+		fightMsgs := e.autoPlayOneFight(session, player, gs, &mobCopy, huntLocation, mobLoc, huntLocationName)
+		msgs = append(msgs, fightMsgs...)
+		msgs = append(msgs, Msg("", "system"))
+	}
 
 	// Show summary
 	msgs = append(msgs, Msg("", "system"))
@@ -1067,6 +1136,17 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 			msgs = append(msgs, Msg("  A villager was rescued! (+25 Village XP)", "narrative"))
 		}
 
+		// 15% chance to discover a new location
+		if rand.Intn(100) < 15 {
+			combinedSeen := append([]string{}, player.KnownLocations...)
+			combinedSeen = append(combinedSeen, player.LockedLocations...)
+			discovered := game.SearchLocation(combinedSeen, data.DiscoverableLocations)
+			if discovered != "" {
+				player.LockedLocations = append(player.LockedLocations, discovered)
+				msgs = append(msgs, Msg(fmt.Sprintf("  You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+			}
+		}
+
 		player.StatsMod = game.CalculateItemMods(player.EquipmentMap)
 		player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
 
@@ -1213,19 +1293,23 @@ func (e *Engine) handleAutoPlayMenu(session *GameSession, cmd GameCommand) GameR
 		}
 
 	case "6":
-		// Resume Auto-Play
-		session.State = StateAutoPlaySpeed
-		return GameResponse{
-			Type:     "menu",
-			Messages: []GameMessage{Msg("Select auto-play speed:", "system")},
-			State:    &StateData{Screen: "autoplay_speed", Player: MakePlayerState(player)},
-			Options: []MenuOption{
-				Opt("1", "Slow (2s per fight)"),
-				Opt("2", "Normal (1s per fight)"),
-				Opt("3", "Fast (0.5s per fight)"),
-				Opt("4", "Turbo (0.1s per fight)"),
-			},
+		// Resume Auto-Play at the same speed
+		speed := "normal"
+		if session.Combat != nil && session.Combat.AutoPlaySpeed != "" {
+			speed = session.Combat.AutoPlaySpeed
 		}
+		speedNum := "2"
+		switch speed {
+		case "slow":
+			speedNum = "1"
+		case "normal":
+			speedNum = "2"
+		case "fast":
+			speedNum = "3"
+		case "turbo":
+			speedNum = "4"
+		}
+		return e.handleAutoPlaySpeed(session, GameCommand{Type: "select", Value: speedNum})
 
 	case "0":
 		// Return to Main Menu
@@ -1365,6 +1449,9 @@ func (e *Engine) handleLoadSaveCharSelect(session *GameSession, cmd GameCommand)
 	if char.EquipmentMap == nil {
 		char.EquipmentMap = map[int]models.Item{}
 	}
+	if char.LockedLocations == nil {
+		char.LockedLocations = []string{}
+	}
 
 	gs.CharactersMap[char.Name] = char
 	session.Player = &char
@@ -1494,12 +1581,8 @@ func buildPlayerStatsMessages(player *models.Character, gs *models.GameState) []
 	if len(player.EquipmentMap) > 0 {
 		msgs = append(msgs, Msg("", "system"))
 		msgs = append(msgs, Msg("--- Equipped Items ---", "system"))
-		slotNames := map[int]string{
-			0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
-			4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
-		}
 		for slot, item := range player.EquipmentMap {
-			slotName := slotNames[slot]
+			slotName := SlotNames[slot]
 			if slotName == "" {
 				slotName = fmt.Sprintf("Slot %d", slot)
 			}
@@ -1592,11 +1675,26 @@ func buildQuestLogMessages(player *models.Character, gs *models.GameState) []Gam
 			continue
 		}
 
-		// Update current value for level quests
-		if quest.Requirement.Type == "level" {
+		// Update current values for display
+		switch quest.Requirement.Type {
+		case "level":
 			quest.Requirement.CurrentValue = player.Level
-			gs.AvailableQuests[questID] = quest
+		case "village_level":
+			if gs.Villages != nil && player.VillageName != "" {
+				if village, ok := gs.Villages[player.VillageName]; ok {
+					quest.Requirement.CurrentValue = village.Level
+				}
+			}
+		case "total_resources":
+			total := 0
+			for _, res := range player.ResourceStorageMap {
+				total += res.Stock
+			}
+			quest.Requirement.CurrentValue = total
+		case "skill_count":
+			quest.Requirement.CurrentValue = len(player.LearnedSkills)
 		}
+		gs.AvailableQuests[questID] = quest
 
 		msgs = append(msgs, Msg(fmt.Sprintf("  > %s", quest.Name), "narrative"))
 		msgs = append(msgs, Msg(fmt.Sprintf("    %s", quest.Description), "narrative"))
@@ -1611,6 +1709,15 @@ func buildQuestLogMessages(player *models.Character, gs *models.GameState) []Gam
 		case "location":
 			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d locations explored in %s",
 				quest.Requirement.CurrentValue, quest.Requirement.TargetValue, quest.Requirement.TargetName), "narrative"))
+		case "village_level":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: Village Level %d / %d",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
+		case "total_resources":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d resources gathered",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
+		case "skill_count":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d skills learned",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
 		}
 
 		msgs = append(msgs, Msg(fmt.Sprintf("    Reward: %d XP", quest.Reward.XP), "narrative"))
@@ -1747,16 +1854,11 @@ func buildEquipmentMessages(player *models.Character) []GameMessage {
 		Msg("============================================================", "system"),
 	}
 
-	slotNames := map[int]string{
-		0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
-		4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
-	}
-
 	if len(player.EquipmentMap) == 0 {
 		msgs = append(msgs, Msg("No equipment equipped.", "system"))
 	} else {
 		for slot, item := range player.EquipmentMap {
-			slotName := slotNames[slot]
+			slotName := SlotNames[slot]
 			if slotName == "" {
 				slotName = fmt.Sprintf("Slot %d", slot)
 			}

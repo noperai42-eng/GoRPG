@@ -1,0 +1,128 @@
+/* ===== Map Screen ===== */
+.map-header {
+    margin-bottom: 1rem;
+}
+
+.map-header h2 {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+}
+
+.map-header p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* Location Grid */
+.location-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.75rem;
+}
+
+/* Location Card */
+.location-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.location-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+    transform: translateY(-1px);
+}
+
+.location-card.locked {
+    opacity: 0.5;
+    cursor: pointer;
+}
+
+.location-card.locked:hover {
+    opacity: 0.7;
+    border-color: var(--text-muted);
+}
+
+.location-card.guardian-defeated {
+    border-left: 3px solid var(--accent);
+}
+
+.location-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Status icons for locked / guardian-defeated */
+.location-status-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.location-status-icon.location-status-unlocked {
+    color: var(--accent);
+}
+
+.location-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.location-type-badge {
+    margin-left: auto;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.type-mix { background: rgba(248, 81, 73, 0.15); color: var(--loc-mix); }
+.type-ruin { background: rgba(139, 148, 158, 0.15); color: var(--loc-ruin); }
+.type-resource { background: rgba(63, 185, 80, 0.15); color: var(--loc-resource); }
+.type-trade { background: rgba(210, 153, 34, 0.15); color: var(--loc-trade); }
+.type-base { background: rgba(88, 166, 255, 0.15); color: var(--loc-base); }
+
+.location-level {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.location-lock-text {
+    font-size: 0.75rem;
+    color: var(--color-error);
+    margin-top: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* Hunt Modal */
+.hunt-modal-loc {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.hunt-modal-loc-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.hunt-modal-loc-type {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+    .location-grid {
+        grid-template-columns: 1fr;
+    }
+}

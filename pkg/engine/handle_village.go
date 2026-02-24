@@ -66,7 +66,7 @@ func buildVillageMainResponse(session *GameSession, extraMsgs []GameMessage) Gam
 	return GameResponse{
 		Type:     "menu",
 		Messages: msgs,
-		State:    &StateData{Screen: "village_main", Player: MakePlayerState(player)},
+		State:    &StateData{Screen: "village_main", Player: MakePlayerState(player), Village: MakeVillageView(village)},
 		Options:  options,
 	}
 }

@@ -112,6 +112,24 @@ func SearchLocation(discoveredLocations []string, undiscoveredLocations []models
 	return ""
 }
 
+func GenerateLocationGuardian(locationName string, loc models.Location, gs *models.GameState) models.Monster {
+	levelMax := loc.LevelMax
+	if levelMax == 0 {
+		levelMax = 30
+	}
+	rarityMax := loc.RarityMax
+	if rarityMax == 0 {
+		rarityMax = 3
+	}
+	guardian := GenerateBestMonster(gs, levelMax, rarityMax)
+	guardian.IsBoss = true
+	guardian.Name = "Guardian of " + locationName
+	guardian.HitpointsNatural = int(float64(guardian.HitpointsNatural) * 1.5)
+	guardian.HitpointsTotal = int(float64(guardian.HitpointsTotal) * 1.5)
+	guardian.HitpointsRemaining = guardian.HitpointsTotal
+	return guardian
+}
+
 func CalculateTotalWeight(locations []models.Location) int {
 	total := 0
 	for _, location := range locations {

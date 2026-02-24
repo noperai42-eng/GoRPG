@@ -34,6 +34,20 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 		switch quest.Requirement.Type {
 		case "level":
 			quest.Requirement.CurrentValue = player.Level
+		case "village_level":
+			if gameState.Villages != nil && player.VillageName != "" {
+				if village, ok := gameState.Villages[player.VillageName]; ok {
+					quest.Requirement.CurrentValue = village.Level
+				}
+			}
+		case "total_resources":
+			total := 0
+			for _, res := range player.ResourceStorageMap {
+				total += res.Stock
+			}
+			quest.Requirement.CurrentValue = total
+		case "skill_count":
+			quest.Requirement.CurrentValue = len(player.LearnedSkills)
 		}
 
 		if quest.Requirement.CurrentValue >= quest.Requirement.TargetValue {
@@ -79,30 +93,39 @@ func ActivateNextQuest(player *models.Character, gameState *models.GameState, co
 		player.CompletedQuests = []string{}
 	}
 
-	nextQuestMap := map[string]string{
-		"quest_1_training": "quest_2_explore",
-		"quest_2_explore":  "quest_3_boss",
-		"quest_3_boss":     "quest_4_master",
-		"quest_4_master":   "quest_5_ascension",
+	// Main story chain + village/crafting chain.
+	// Some quests branch into multiple next quests (e.g. quest_1 → quest_2 + quest_v1).
+	nextQuestMap := map[string][]string{
+		"quest_1_training": {"quest_2_explore", "quest_v1_village"},
+		"quest_2_explore":  {"quest_3_boss"},
+		"quest_3_boss":     {"quest_4_master"},
+		"quest_4_master":   {"quest_5_ascension"},
+		"quest_v1_village": {"quest_v2_harvest"},
+		"quest_v2_harvest": {"quest_v3_potion"},
+		"quest_v3_potion":  {"quest_v4_armor", "quest_v6_skills"},
+		"quest_v4_armor":   {"quest_v5_weapon"},
+		"quest_v5_weapon":  {"quest_v7_scrolls"},
 	}
 
-	nextQuestID, hasNext := nextQuestMap[completedQuestID]
+	nextQuestIDs, hasNext := nextQuestMap[completedQuestID]
 	if !hasNext {
 		return
 	}
 
-	nextQuest, exists := gameState.AvailableQuests[nextQuestID]
-	if !exists {
-		return
+	for _, nextQuestID := range nextQuestIDs {
+		nextQuest, exists := gameState.AvailableQuests[nextQuestID]
+		if !exists {
+			continue
+		}
+
+		nextQuest.Active = true
+		gameState.AvailableQuests[nextQuestID] = nextQuest
+
+		player.ActiveQuests = append(player.ActiveQuests, nextQuestID)
+
+		fmt.Printf("\n\U0001F4DC New Quest: %s\n", nextQuest.Name)
+		fmt.Printf("   %s\n", nextQuest.Description)
 	}
-
-	nextQuest.Active = true
-	gameState.AvailableQuests[nextQuestID] = nextQuest
-
-	player.ActiveQuests = append(player.ActiveQuests, nextQuestID)
-
-	fmt.Printf("\n\U0001F4DC New Quest: %s\n", nextQuest.Name)
-	fmt.Printf("   %s\n", nextQuest.Description)
 }
 
 // ShowQuestLog displays the player's active and completed quests with

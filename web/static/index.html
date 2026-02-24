@@ -4,104 +4,728 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RPG Game</title>
-    <link rel="stylesheet" href="css/style.css">
+    <style>[x-cloak] { display: none !important; }</style>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/hub.css">
+    <link rel="stylesheet" href="css/map.css">
     <link rel="stylesheet" href="css/combat.css">
+    <link rel="stylesheet" href="css/village.css">
+    <link rel="stylesheet" href="css/quests.css">
 </head>
-<body>
-    <div id="app">
-        <!-- Login/Register Screen -->
-        <div id="screen-auth" class="screen active">
-            <div class="auth-container">
-                <h1>RPG Game</h1>
-                <div id="auth-tabs">
-                    <button class="tab active" data-tab="login">Login</button>
-                    <button class="tab" data-tab="register">Register</button>
-                </div>
-                <form id="login-form" class="auth-form">
-                    <input type="text" id="login-username" placeholder="Username" required>
-                    <input type="password" id="login-password" placeholder="Password" required>
-                    <button type="submit">Login</button>
-                    <div id="login-error" class="error"></div>
-                </form>
-                <form id="register-form" class="auth-form hidden">
-                    <input type="text" id="register-username" placeholder="Username (3-30 chars, alphanumeric)" required>
-                    <input type="password" id="register-password" placeholder="Password (6+ chars)" required>
-                    <button type="submit">Register</button>
-                    <div id="register-error" class="error"></div>
-                </form>
+<body x-data x-cloak>
+<div id="app">
+
+    <!-- ==================== AUTH SCREEN ==================== -->
+    <div x-show="$store.game.screen === 'auth'" class="auth-screen" x-data="{
+        authTab: 'login',
+        loginUser: '', loginPass: '', loginError: '',
+        regUser: '', regPass: '', regError: '',
+        async doLogin() {
+            try {
+                this.loginError = '';
+                await Auth.login(this.loginUser, this.loginPass);
+                $store.game.screen = 'characters';
+                loadCharacters();
+            } catch(e) { this.loginError = e.message; }
+        },
+        async doRegister() {
+            try {
+                this.regError = '';
+                await Auth.register(this.regUser, this.regPass);
+                await Auth.login(this.regUser, this.regPass);
+                $store.game.screen = 'characters';
+                loadCharacters();
+            } catch(e) { this.regError = e.message; }
+        }
+    }">
+        <div class="auth-container">
+            <h1>RPG Game</h1>
+            <p class="auth-subtitle">Text-based adventure awaits</p>
+            <div class="auth-tabs">
+                <button class="auth-tab" :class="{ active: authTab === 'login' }" @click="authTab = 'login'">Login</button>
+                <button class="auth-tab" :class="{ active: authTab === 'register' }" @click="authTab = 'register'">Register</button>
             </div>
-        </div>
-
-        <!-- Character Select Screen -->
-        <div id="screen-characters" class="screen">
-            <div class="panel">
-                <h2>Select Character</h2>
-                <div id="character-list"></div>
-                <div class="create-char">
-                    <input type="text" id="new-char-name" placeholder="New character name">
-                    <button id="btn-create-char">Create</button>
-                </div>
-                <div id="char-error" class="error"></div>
-                <button id="btn-play">Play</button>
-                <button id="btn-logout" class="btn-secondary">Logout</button>
-            </div>
-        </div>
-
-        <!-- Game Screen -->
-        <div id="screen-game" class="screen">
-            <div id="game-header">
-                <span id="player-info"></span>
-                <button id="btn-disconnect" class="btn-small">Disconnect</button>
-            </div>
-
-            <!-- Combat HUD -->
-            <div id="combat-hud" class="hidden">
-                <div id="combat-turn"></div>
-                <div class="combatant">
-                    <div class="combatant-name">Player</div>
-                    <div class="bar-group">
-                        <div class="bar hp-bar"><div class="bar-fill" id="player-hp-bar"></div><span class="bar-text" id="player-hp-text"></span></div>
-                        <div class="bar mp-bar"><div class="bar-fill" id="player-mp-bar"></div><span class="bar-text" id="player-mp-text"></span></div>
-                        <div class="bar sp-bar"><div class="bar-fill" id="player-sp-bar"></div><span class="bar-text" id="player-sp-text"></span></div>
-                    </div>
-                    <div id="player-effects" class="effects"></div>
-                </div>
-                <div class="combatant">
-                    <div class="combatant-name" id="monster-name"></div>
-                    <div class="bar-group">
-                        <div class="bar hp-bar"><div class="bar-fill" id="monster-hp-bar"></div><span class="bar-text" id="monster-hp-text"></span></div>
-                        <div class="bar mp-bar"><div class="bar-fill" id="monster-mp-bar"></div><span class="bar-text" id="monster-mp-text"></span></div>
-                        <div class="bar sp-bar"><div class="bar-fill" id="monster-sp-bar"></div><span class="bar-text" id="monster-sp-text"></span></div>
-                    </div>
-                    <div id="monster-effects" class="effects"></div>
-                </div>
-                <div id="guard-panel" class="hidden">
-                    <div class="guard-header">Guards</div>
-                    <div id="guard-list"></div>
-                </div>
-            </div>
-
-            <!-- Messages / Combat Log -->
-            <div id="message-log"></div>
-
-            <!-- Options / Action Buttons -->
-            <div id="options-panel"></div>
-
-            <!-- Text Input Prompt -->
-            <div id="prompt-panel" class="hidden">
-                <div id="prompt-text"></div>
-                <form id="prompt-form">
-                    <input type="text" id="prompt-input" autocomplete="off">
-                    <button type="submit">Submit</button>
-                </form>
-            </div>
+            <!-- Login -->
+            <form x-show="authTab === 'login'" class="auth-form" @submit.prevent="doLogin">
+                <input class="auth-input" type="text" x-model="loginUser" placeholder="Username" required>
+                <input class="auth-input" type="password" x-model="loginPass" placeholder="Password" required>
+                <button class="btn btn-primary btn-block" type="submit">Login</button>
+                <div class="auth-error" x-text="loginError"></div>
+            </form>
+            <!-- Register -->
+            <form x-show="authTab === 'register'" class="auth-form" @submit.prevent="doRegister">
+                <input class="auth-input" type="text" x-model="regUser" placeholder="Username (3-30 chars)" required>
+                <input class="auth-input" type="password" x-model="regPass" placeholder="Password (6+ chars)" required>
+                <button class="btn btn-primary btn-block" type="submit">Register</button>
+                <div class="auth-error" x-text="regError"></div>
+            </form>
         </div>
     </div>
 
-    <script src="js/auth.js"></script>
-    <script src="js/websocket.js"></script>
-    <script src="js/combat.js"></script>
-    <script src="js/game.js"></script>
-    <script src="js/app.js"></script>
+    <!-- ==================== CHARACTER SELECT SCREEN ==================== -->
+    <div x-show="$store.game.screen === 'characters'" class="char-screen" x-data="{
+        characters: [],
+        selectedChar: null,
+        newCharName: '',
+        charError: '',
+        _loaded: false,
+        async loadChars() {
+            if (this._loaded) return;
+            this._loaded = true;
+            try {
+                const resp = await fetch('/api/characters', { headers: Auth.getAuthHeaders() });
+                if (resp.status === 401) { Auth.logout(); $store.game.screen = 'auth'; this._loaded = false; return; }
+                const data = await resp.json();
+                this.characters = data.characters || [];
+                if (this.characters.length > 0) {
+                    this.selectedChar = this.characters[0];
+                    this.startGame();
+                }
+            } catch(e) { this.charError = 'Failed to load characters'; this._loaded = false; }
+        },
+        async createChar() {
+            if (!this.newCharName.trim()) { this.charError = 'Enter a name'; return; }
+            try {
+                const resp = await fetch('/api/characters', {
+                    method: 'POST',
+                    headers: Auth.getAuthHeaders(),
+                    body: JSON.stringify({ name: this.newCharName.trim() })
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Failed');
+                this.selectedChar = this.newCharName.trim();
+                this.newCharName = '';
+                this.charError = '';
+                this.startGame();
+            } catch(e) { this.charError = e.message; }
+        },
+        startGame() {
+            if (!Auth.token) { $store.game.screen = 'auth'; return; }
+            $store.game.screen = 'game';
+            $store.game.activeTab = 'hub';
+            $store.game.combatLog = [];
+            $store.game.recentMessages = [];
+            GameConnection.connect(Auth.token);
+        },
+        logout() {
+            Auth.logout();
+            this._loaded = false;
+            $store.game.screen = 'auth';
+        }
+    }" x-effect="if ($store.game.screen === 'characters') loadChars()">
+        <div class="char-panel">
+            <h2>Select Character</h2>
+            <div class="char-list">
+                <template x-for="name in characters" :key="name">
+                    <div class="char-item" :class="{ selected: selectedChar === name }" @click="selectedChar = name" x-text="name"></div>
+                </template>
+            </div>
+            <div class="create-char-row">
+                <input type="text" x-model="newCharName" placeholder="New character name" @keydown.enter="createChar">
+                <button class="btn btn-secondary" @click="createChar">Create</button>
+            </div>
+            <div class="auth-error" x-text="charError"></div>
+            <button class="btn btn-primary btn-block" @click="startGame" x-show="selectedChar">Play</button>
+            <button class="btn btn-ghost btn-block" @click="logout">Logout</button>
+        </div>
+    </div>
+
+    <!-- ==================== GAME SCREEN ==================== -->
+    <div x-show="$store.game.screen === 'game'" style="display: flex; flex-direction: column; height: 100%;">
+
+        <!-- NAV BAR -->
+        <nav class="nav-bar" x-data="navbar()">
+            <span class="nav-title">RPG</span>
+            <div class="nav-tabs">
+                <template x-for="tab in tabs" :key="tab.id">
+                    <button class="nav-tab"
+                        :class="{ active: $store.game.activeTab === tab.id }"
+                        :disabled="$store.game.inCombat"
+                        @click="switchTab(tab.id)"
+                        x-text="tab.label">
+                    </button>
+                </template>
+            </div>
+            <div class="nav-actions">
+                <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
+            </div>
+        </nav>
+
+        <!-- RESOURCE BAR -->
+        <div class="resource-bar" x-show="$store.game.player && !$store.game.inCombat" x-data="{ get pl() { return $store.game.player || {} } }">
+            <div class="resource-bar-item">
+                <span class="resource-bar-label">Lv</span>
+                <span class="resource-bar-value" x-text="pl.level || 0"></span>
+            </div>
+            <div class="resource-bar-item">
+                <span class="resource-bar-label">HP</span>
+                <div class="resource-mini-bar">
+                    <div class="resource-mini-bar-fill hp" :style="'width:' + $store.game.barPct(pl.hp || 0, pl.max_hp || 1)"></div>
+                </div>
+                <span class="resource-bar-value" x-text="(pl.hp || 0) + '/' + (pl.max_hp || 0)"></span>
+            </div>
+            <div class="resource-bar-item">
+                <span class="resource-bar-label">MP</span>
+                <div class="resource-mini-bar">
+                    <div class="resource-mini-bar-fill mp" :style="'width:' + $store.game.barPct(pl.mp || 0, pl.max_mp || 1)"></div>
+                </div>
+                <span class="resource-bar-value" x-text="(pl.mp || 0) + '/' + (pl.max_mp || 0)"></span>
+            </div>
+            <div class="resource-bar-item">
+                <span class="resource-bar-label">SP</span>
+                <div class="resource-mini-bar">
+                    <div class="resource-mini-bar-fill sp" :style="'width:' + $store.game.barPct(pl.sp || 0, pl.max_sp || 1)"></div>
+                </div>
+                <span class="resource-bar-value" x-text="(pl.sp || 0) + '/' + (pl.max_sp || 0)"></span>
+            </div>
+            <div class="resource-bar-item">
+                <span class="resource-bar-label">XP</span>
+                <div class="resource-mini-bar">
+                    <div class="resource-mini-bar-fill xp" :style="'width:' + $store.game.barPct(pl.experience || 0, pl.exp_to_level || 1)"></div>
+                </div>
+                <span class="resource-bar-value" x-text="(pl.experience || 0) + '/' + (pl.exp_to_level || 0)"></span>
+            </div>
+        </div>
+
+        <!-- TAB CONTENT -->
+        <div style="flex: 1; overflow: hidden; position: relative;">
+
+            <!-- ===== HUB TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'hub' && !$store.game.inCombat" x-data="hubScreen()">
+                <template x-if="p">
+                    <div class="hub-layout">
+                        <!-- Left: Character -->
+                        <div class="hub-character">
+                            <div class="card">
+                                <div class="hub-char-header">
+                                    <div class="hub-char-avatar" x-text="p.name.substring(0,2).toUpperCase()"></div>
+                                    <div>
+                                        <div class="hub-char-name" x-text="p.name"></div>
+                                        <div class="hub-char-level" x-text="'Level ' + p.level + ' | ' + p.resurrections + ' deaths'"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Resource Bars -->
+                                <div class="bar-container">
+                                    <div class="bar-label"><span class="bar-label-name">HP</span><span class="bar-label-value" x-text="p.hp + '/' + p.max_hp"></span></div>
+                                    <div class="bar"><div class="bar-fill" :class="$store.game.hpClass(p.hp, p.max_hp)" :style="'width:' + $store.game.barPct(p.hp, p.max_hp)"></div></div>
+                                </div>
+                                <div class="bar-container">
+                                    <div class="bar-label"><span class="bar-label-name">MP</span><span class="bar-label-value" x-text="p.mp + '/' + p.max_mp"></span></div>
+                                    <div class="bar"><div class="bar-fill mp" :style="'width:' + $store.game.barPct(p.mp, p.max_mp)"></div></div>
+                                </div>
+                                <div class="bar-container">
+                                    <div class="bar-label"><span class="bar-label-name">SP</span><span class="bar-label-value" x-text="p.sp + '/' + p.max_sp"></span></div>
+                                    <div class="bar"><div class="bar-fill sp" :style="'width:' + $store.game.barPct(p.sp, p.max_sp)"></div></div>
+                                </div>
+                                <div class="bar-container">
+                                    <div class="bar-label"><span class="bar-label-name">XP</span><span class="bar-label-value" x-text="p.experience + '/' + p.exp_to_level"></span></div>
+                                    <div class="bar bar-sm"><div class="bar-fill xp" :style="'width:' + $store.game.barPct(p.experience, p.exp_to_level)"></div></div>
+                                </div>
+
+                                <!-- Stats -->
+                                <div style="margin-top: 0.5rem;">
+                                    <div class="stat-row"><span class="stat-label">ATK Rolls</span><span class="stat-value" x-text="p.attack_rolls"></span></div>
+                                    <div class="stat-row"><span class="stat-label">DEF Rolls</span><span class="stat-value" x-text="p.defense_rolls"></span></div>
+                                    <div class="stat-row"><span class="stat-label">ATK Mod</span><span class="stat-value" x-text="'+' + p.attack_mod"></span></div>
+                                    <div class="stat-row"><span class="stat-label">DEF Mod</span><span class="stat-value" x-text="'+' + p.defense_mod"></span></div>
+                                    <div class="stat-row"><span class="stat-label">HP Mod</span><span class="stat-value" x-text="'+' + p.hitpoint_mod"></span></div>
+                                </div>
+                            </div>
+
+                            <!-- Equipment -->
+                            <div class="card">
+                                <div class="section-header">Equipment</div>
+                                <div class="equipment-grid">
+                                    <template x-for="slot in equipSlots" :key="slot">
+                                        <div class="equip-slot" :class="getEquipItem(slot) ? rarityClass(getEquipItem(slot)) : ''">
+                                            <span class="equip-slot-name" x-text="slot"></span>
+                                            <span x-show="getEquipItem(slot)" class="equip-slot-item" x-text="getEquipItem(slot)?.name" :title="getEquipItem(slot) ? 'CP:' + getEquipItem(slot).cp + ' ATK:+' + getEquipItem(slot).attack + ' DEF:+' + getEquipItem(slot).defense + ' HP:+' + getEquipItem(slot).hitpoint : ''"></span>
+                                            <span x-show="!getEquipItem(slot)" class="equip-slot-empty">Empty</span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Skills -->
+                            <div class="card" x-show="p.skills && p.skills.length > 0">
+                                <div class="section-header">Skills</div>
+                                <div class="skill-list">
+                                    <template x-for="skill in p.skills" :key="skill.name">
+                                        <span class="skill-badge" :title="skill.description">
+                                            <span class="skill-badge-name" x-text="skill.name"></span>
+                                            <span class="skill-badge-cost" x-text="skillCost(skill)"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Actions & Info -->
+                        <div class="hub-actions">
+                            <!-- Quick Actions -->
+                            <div class="card">
+                                <div class="section-header">Actions</div>
+                                <div class="hub-quick-actions">
+                                    <button class="hub-action-btn" @click="goHunt"><span class="action-icon">&#x2694;</span>Hunt</button>
+                                    <button class="hub-action-btn" @click="goHarvest"><span class="action-icon">&#x26CF;</span>Harvest</button>
+                                    <button class="hub-action-btn" @click="goAutoPlay"><span class="action-icon">&#x26A1;</span>Auto-Play</button>
+                                    <button class="hub-action-btn" @click="goVillage"><span class="action-icon">&#x2302;</span>Village</button>
+                                    <button class="hub-action-btn" @click="goGuide"><span class="action-icon">&#x2753;</span>Guide</button>
+                                    <button class="hub-action-btn" @click="saveExit"><span class="action-icon">&#x2716;</span>Save &amp; Exit</button>
+                                </div>
+                            </div>
+
+                            <!-- Resources -->
+                            <div class="card" x-show="p.resources">
+                                <div class="section-header">Resources</div>
+                                <div class="resource-grid">
+                                    <template x-for="[name, count] in Object.entries(p.resources || {})" :key="name">
+                                        <div class="resource-item" x-show="count > 0 || ['Lumber','Gold','Iron','Sand','Stone'].includes(name)">
+                                            <span class="resource-name" x-text="name"></span>
+                                            <span class="resource-count" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Buildings -->
+                            <div class="card" x-show="p.buildings && p.buildings.length > 0">
+                                <div class="section-header">Buildings</div>
+                                <template x-for="b in p.buildings" :key="b">
+                                    <div class="stat-row"><span class="stat-label" x-text="b"></span><span class="stat-value">&#x2713;</span></div>
+                                </template>
+                            </div>
+
+                            <!-- Activity Feed -->
+                            <div class="card">
+                                <div class="section-header">Activity</div>
+                                <div class="activity-feed">
+                                    <template x-for="(msg, i) in $store.game.recentMessages.slice(-10).reverse()" :key="i">
+                                        <div class="activity-item" :class="msg.category" x-text="msg.text"></div>
+                                    </template>
+                                    <div x-show="$store.game.recentMessages.length === 0" style="color: var(--text-muted); font-size: 0.8rem;">No recent activity</div>
+                                </div>
+                            </div>
+
+                            <!-- Auto-Play Menu (shown when in autoplay state) -->
+                            <div class="card" x-show="isAutoPlayMenu">
+                                <div class="section-header">Auto-Play</div>
+                                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                                    <template x-for="opt in autoplayOptions" :key="opt.key">
+                                        <button class="option-btn" :disabled="!opt.enabled" @click="autoplayAction(opt.key)" x-text="opt.label"></button>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="!p" style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading...</div>
+            </div>
+
+            <!-- ===== MAP TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'map' && !$store.game.inCombat" x-data="mapScreen()">
+                <div class="map-header">
+                    <h2>World Map</h2>
+                    <p>Click a location to begin hunting. Locked locations require a guardian fight.</p>
+                </div>
+                <div class="location-grid">
+                    <template x-for="loc in allLocations" :key="loc.name">
+                        <div class="location-card" :class="{ locked: loc.locked, 'guardian-defeated': loc.guardianDefeated }" @click="clickLocation(loc)">
+                            <div class="location-card-header">
+                                <span class="location-status-icon" x-show="loc.locked" title="Locked - Guardian guards this location">&#x1F512;</span>
+                                <span class="location-status-icon location-status-unlocked" x-show="loc.guardianDefeated" title="Guardian defeated">&#x2726;</span>
+                                <span class="location-name" x-text="loc.name"></span>
+                                <span class="location-type-badge" :class="typeClass(loc.type)" x-text="typeIcon(loc.type) + ' ' + (loc.type || '???')"></span>
+                            </div>
+                            <div class="location-level" x-show="loc.level_max" x-text="'Lv 1-' + loc.level_max"></div>
+                            <div class="location-lock-text" x-show="loc.locked">&#x1F512; Defeat Guardian to Unlock</div>
+                        </div>
+                    </template>
+                </div>
+                <div x-show="allLocations.length === 0" style="text-align: center; padding: 2rem; color: var(--text-muted);">No locations discovered yet. Go hunting!</div>
+
+                <!-- Hunt Modal -->
+                <div class="modal-overlay" x-show="showHuntModal" @click.self="$store.game.sendCommand('select', 'back')">
+                    <div class="modal">
+                        <div class="modal-title" x-text="$store.game.serverScreen === 'hunt_tracking' ? 'Select Target' : 'How Many Hunts?'"></div>
+                        <!-- Hunt Count -->
+                        <div x-show="$store.game.serverScreen === 'hunt_count_select'">
+                            <input type="number" x-model="huntCount" min="1" placeholder="Number of hunts" @keydown.enter="submitHuntCount" autofocus>
+                            <div class="modal-actions">
+                                <button class="btn btn-primary btn-block" @click="submitHuntCount">Start Hunt</button>
+                            </div>
+                        </div>
+                        <!-- Tracking -->
+                        <div x-show="$store.game.serverScreen === 'hunt_tracking'">
+                            <div class="modal-actions">
+                                <template x-for="opt in $store.game.options" :key="opt.key">
+                                    <button class="option-btn" @click="selectTarget(opt.key)" x-text="opt.label"></button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== VILLAGE TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'village' && !$store.game.inCombat" x-data="villageScreen()">
+                <!-- No village yet -->
+                <div x-show="!hasVillage && !isVillageScreen" style="text-align: center; padding: 2rem;">
+                    <h2 style="color: var(--text-secondary); margin-bottom: 1rem;">Village</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;">Enter your village to manage villagers, guards, and crafting.</p>
+                    <button class="btn btn-primary" @click="enterVillage">Enter Village</button>
+                </div>
+
+                <!-- Village loaded -->
+                <div x-show="hasVillage || isVillageScreen">
+                    <div class="village-header" x-show="v">
+                        <h2 x-text="v ? v.name : 'Village'"></h2>
+                        <div class="village-header-stats" x-show="v">
+                            <span x-text="'Level ' + (v ? v.level : 0)"></span>
+                            <span x-text="'XP: ' + (v ? v.experience : 0) + '/' + (v ? v.exp_to_level : 0)"></span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tabs -->
+                    <div class="sub-tabs" x-show="v">
+                        <template x-for="st in subTabs" :key="st.id">
+                            <button class="sub-tab" :class="{ active: subTab === st.id }" @click="subTab = st.id" x-text="st.label"></button>
+                        </template>
+                    </div>
+
+                    <!-- Overview -->
+                    <div x-show="subTab === 'overview' && v" class="village-content">
+                        <div class="card">
+                            <div class="bar-container">
+                                <div class="bar-label"><span class="bar-label-name">Village XP</span><span class="bar-label-value" x-text="v.experience + '/' + v.exp_to_level"></span></div>
+                                <div class="bar bar-sm"><div class="bar-fill xp" :style="'width:' + barPct(v.experience, v.exp_to_level)"></div></div>
+                            </div>
+                            <div class="stat-row"><span class="stat-label">Villagers</span><span class="stat-value" x-text="v.villagers ? v.villagers.length : 0"></span></div>
+                            <div class="stat-row"><span class="stat-label">Guards</span><span class="stat-value" x-text="v.guards ? v.guards.length : 0"></span></div>
+                            <div class="stat-row"><span class="stat-label">Defense Level</span><span class="stat-value" x-text="v.defense_level"></span></div>
+                        </div>
+
+                        <div class="card" x-show="v.resource_per_tick && Object.keys(v.resource_per_tick).length > 0">
+                            <div class="section-header">Resource Income</div>
+                            <template x-for="[name, amount] in Object.entries(v.resource_per_tick || {})" :key="name">
+                                <div class="stat-row"><span class="stat-label" x-text="name"></span><span class="stat-value" x-text="'+' + amount + '/tick'"></span></div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Villagers -->
+                    <div x-show="subTab === 'villagers' && v" class="village-content">
+                        <div class="villager-list">
+                            <template x-for="(vil, i) in (v.villagers || [])" :key="i">
+                                <div class="villager-row">
+                                    <div class="villager-info">
+                                        <span class="villager-name" x-text="vil.name"></span>
+                                        <span class="villager-role" x-text="'Lv' + vil.level + ' ' + vil.role + (vil.harvest_type ? ' (' + vil.harvest_type + ')' : '')"></span>
+                                    </div>
+                                    <div class="villager-task">
+                                        <span x-text="vil.assigned_task || 'Idle'"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="!v.villagers || v.villagers.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No villagers yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Guards -->
+                    <div x-show="subTab === 'guards' && v" class="village-content">
+                        <div class="guard-list">
+                            <template x-for="(guard, i) in (v.guards || [])" :key="i">
+                                <div class="guard-card" :class="{ injured: guard.injured }">
+                                    <div class="guard-card-header">
+                                        <span class="guard-card-name" x-text="guard.name"></span>
+                                        <span class="guard-card-level" x-text="'Lv' + guard.level"></span>
+                                    </div>
+                                    <div class="bar-container">
+                                        <div class="bar bar-sm"><div class="bar-fill" :class="$store.game.hpClass(guard.hp, guard.max_hp)" :style="'width:' + barPct(guard.hp, guard.max_hp)"></div></div>
+                                    </div>
+                                    <div class="guard-card-stats">
+                                        <span x-text="'HP:' + guard.hp + '/' + guard.max_hp"></span>
+                                        <span x-text="'ATK:+' + guard.attack_bonus"></span>
+                                        <span x-text="'DEF:+' + guard.defense_bonus"></span>
+                                        <span x-show="guard.injured" style="color: var(--color-error);">INJURED</span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="!v.guards || v.guards.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No guards hired yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Crafting & Defenses: server-driven via options -->
+                    <div x-show="(subTab === 'crafting' || subTab === 'defenses') && v" class="village-content">
+                        <div class="card">
+                            <div class="section-header" x-text="subTab === 'crafting' ? 'Crafting' : 'Defenses'"></div>
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">Use the village menu options to manage crafting and defenses.</p>
+                        </div>
+                    </div>
+
+                    <!-- Server options for village -->
+                    <div x-show="isVillageScreen && g.options.length > 0" class="options-panel" style="margin-top: 1rem;">
+                        <template x-for="opt in g.options" :key="opt.key">
+                            <button class="option-btn" :disabled="!opt.enabled" @click="selectOption(opt.key)" x-text="opt.label"></button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== QUESTS TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'quests' && !$store.game.inCombat" x-data="questsScreen()">
+                <div class="quests-header">
+                    <h2>Quest Log</h2>
+                </div>
+
+                <!-- Active Quests -->
+                <div class="section-header" style="margin-bottom: 0.75rem;">Active Quests</div>
+                <div class="quest-list">
+                    <template x-for="quest in activeQuests" :key="quest.id">
+                        <div class="quest-card">
+                            <div class="quest-card-header">
+                                <span class="quest-name" x-text="quest.name"></span>
+                                <span class="quest-reward" x-text="'+' + quest.reward_xp + ' XP'"></span>
+                            </div>
+                            <div class="quest-description" x-text="quest.description"></div>
+                            <div class="quest-progress">
+                                <div class="quest-progress-bar">
+                                    <div class="quest-progress-fill" :style="'width:' + questProgress(quest)"></div>
+                                </div>
+                                <span class="quest-progress-text" x-text="questProgressText(quest)"></span>
+                            </div>
+                        </div>
+                    </template>
+                    <div class="quest-empty" x-show="activeQuests.length === 0">No active quests.</div>
+                </div>
+
+                <!-- Completed Quests -->
+                <div class="quests-completed-header" @click="toggleCompleted" x-show="completedQuests.length > 0">
+                    <span x-text="showCompleted ? '\u25BC' : '\u25B6'"></span>
+                    Completed Quests
+                    <span class="quests-completed-count" x-text="completedQuests.length"></span>
+                </div>
+                <div x-show="showCompleted">
+                    <template x-for="qid in completedQuests" :key="qid">
+                        <div class="quest-completed-item">
+                            <span class="quest-check">&#x2713;</span>
+                            <span x-text="qid"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ===== COMBAT OVERLAY ===== -->
+            <div class="combat-overlay" x-show="$store.game.inCombat" x-data="combatScreen()" x-effect="if ($store.game.inCombat) scrollLog()">
+                <template x-if="c">
+                    <div style="display: flex; flex-direction: column; height: 100%;">
+                        <!-- Turn Banner -->
+                        <div class="combat-turn-banner">
+                            <div class="combat-turn-text" x-text="'Turn ' + c.turn"></div>
+                            <div class="combat-hunts" x-text="'Hunts remaining: ' + c.hunts_remaining"></div>
+                        </div>
+
+                        <!-- Arena -->
+                        <div class="combat-arena">
+                            <!-- Player -->
+                            <div class="combatant-panel">
+                                <div class="combatant-header">
+                                    <div class="combatant-avatar player" x-text="playerInitials"></div>
+                                    <div class="combatant-info">
+                                        <div class="combatant-name" x-text="p ? p.name : ''"></div>
+                                        <div class="combatant-level" x-text="p ? 'Level ' + p.level : ''"></div>
+                                    </div>
+                                </div>
+                                <div class="combat-bars">
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">HP</span><span class="bar-label-value" x-text="c.player_hp + '/' + c.player_max_hp"></span></div>
+                                        <div class="bar"><div class="bar-fill" :class="hpClass(c.player_hp, c.player_max_hp)" :style="'width:' + barPct(c.player_hp, c.player_max_hp)"></div></div>
+                                    </div>
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">MP</span><span class="bar-label-value" x-text="c.player_mp + '/' + c.player_max_mp"></span></div>
+                                        <div class="bar bar-sm"><div class="bar-fill mp" :style="'width:' + barPct(c.player_mp, c.player_max_mp)"></div></div>
+                                    </div>
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">SP</span><span class="bar-label-value" x-text="c.player_sp + '/' + c.player_max_sp"></span></div>
+                                        <div class="bar bar-sm"><div class="bar-fill sp" :style="'width:' + barPct(c.player_sp, c.player_max_sp)"></div></div>
+                                    </div>
+                                </div>
+                                <div class="combat-effects">
+                                    <template x-for="eff in (c.player_effects || [])" :key="eff.name + eff.duration">
+                                        <span class="badge badge-effect" :class="'badge-' + eff.name" x-text="eff.name + ':' + eff.duration"></span>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Monster -->
+                            <div class="combatant-panel" :class="monsterPanelClass">
+                                <div class="combatant-header">
+                                    <div class="combatant-avatar" :class="avatarClass" x-text="monsterInitials"></div>
+                                    <div class="combatant-info">
+                                        <div class="combatant-name" x-text="c.monster_name"></div>
+                                        <div class="combatant-level" x-text="'Level ' + c.monster_level + ' ' + c.monster_type"></div>
+                                        <div class="combatant-boss-tag" x-show="c.monster_is_boss">&#x2655; BOSS</div>
+                                        <div class="combatant-guardian-tag" x-show="c.monster_is_guardian" x-text="'\u2726 Guardian: ' + (c.guarded_skill_name || '')"></div>
+                                    </div>
+                                </div>
+                                <div class="combat-bars">
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">HP</span><span class="bar-label-value" x-text="c.monster_hp + '/' + c.monster_max_hp"></span></div>
+                                        <div class="bar"><div class="bar-fill" :class="hpClass(c.monster_hp, c.monster_max_hp)" :style="'width:' + barPct(c.monster_hp, c.monster_max_hp)"></div></div>
+                                    </div>
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">MP</span><span class="bar-label-value" x-text="c.monster_mp + '/' + c.monster_max_mp"></span></div>
+                                        <div class="bar bar-sm"><div class="bar-fill mp" :style="'width:' + barPct(c.monster_mp, c.monster_max_mp)"></div></div>
+                                    </div>
+                                    <div class="bar-container">
+                                        <div class="bar-label"><span class="bar-label-name">SP</span><span class="bar-label-value" x-text="c.monster_sp + '/' + c.monster_max_sp"></span></div>
+                                        <div class="bar bar-sm"><div class="bar-fill sp" :style="'width:' + barPct(c.monster_sp, c.monster_max_sp)"></div></div>
+                                    </div>
+                                </div>
+                                <div class="combat-effects">
+                                    <template x-for="eff in (c.monster_effects || [])" :key="eff.name + eff.duration">
+                                        <span class="badge badge-effect" :class="'badge-' + eff.name" x-text="eff.name + ':' + eff.duration"></span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Guards -->
+                        <div class="combat-guard-panel" x-show="hasGuards">
+                            <div class="combat-guard-header">Guards</div>
+                            <div class="combat-guards-row">
+                                <template x-for="guard in (c.guards || [])" :key="guard.name">
+                                    <div class="combat-guard-card" :class="{ injured: guard.injured }">
+                                        <div class="combat-guard-name" x-text="guard.name"></div>
+                                        <div class="bar bar-sm" style="margin-top: 0.2rem;">
+                                            <div class="bar-fill" :class="hpClass(guard.hp, guard.max_hp)" :style="'width:' + barPct(guard.hp, guard.max_hp)"></div>
+                                        </div>
+                                        <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 0.1rem;" x-text="guard.hp + '/' + guard.max_hp"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Combat Log -->
+                        <div class="combat-log" x-ref="combatLog">
+                            <template x-for="(msg, i) in $store.game.combatLog" :key="i">
+                                <div class="combat-log-entry" :class="msg.category" x-text="msg.text"></div>
+                            </template>
+                        </div>
+
+                        <!-- Action Bar -->
+                        <div class="combat-action-bar">
+                            <!-- Dropdown for items/skills -->
+                            <div class="combat-dropdown" x-show="showDropdown && (isItemSelect || isSkillSelect)">
+                                <div class="combat-dropdown-title">
+                                    <span x-text="dropdownTitle"></span>
+                                    <button class="combat-dropdown-close" @click="closeDropdown">&#x2715;</button>
+                                </div>
+                                <template x-for="opt in dropdownOptions" :key="opt.key">
+                                    <div class="combat-dropdown-item" @click="selectDropdownItem(opt.key)">
+                                        <div class="combat-dropdown-item-name" x-text="opt.label"></div>
+                                    </div>
+                                </template>
+                                <div x-show="dropdownOptions.length === 0" style="color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">None available</div>
+                            </div>
+
+                            <!-- Guard Prompt / Skill Reward as modal overlay on action bar -->
+                            <template x-if="showGuardPrompt || showSkillReward">
+                                <div style="display: flex; gap: 0.5rem; width: 100%;">
+                                    <template x-for="opt in $store.game.options" :key="opt.key">
+                                        <button class="combat-action-btn" @click="$store.game.sendCommand('select', opt.key)" x-text="opt.label"></button>
+                                    </template>
+                                </div>
+                            </template>
+
+                            <!-- Normal combat actions -->
+                            <template x-if="!showGuardPrompt && !showSkillReward">
+                                <div style="display: flex; gap: 0.5rem; width: 100%;">
+                                    <button class="combat-action-btn" @click="doAttack"><span class="action-icon">&#x2694;</span>Attack</button>
+                                    <button class="combat-action-btn" @click="doDefend"><span class="action-icon">&#x1F6E1;</span>Defend</button>
+                                    <button class="combat-action-btn" @click="doItem"><span class="action-icon">&#x1F9EA;</span>Item</button>
+                                    <button class="combat-action-btn" @click="doSkill"><span class="action-icon">&#x2B50;</span>Skill</button>
+                                    <button class="combat-action-btn" @click="doFlee"><span class="action-icon">&#x1F3C3;</span>Flee</button>
+                                    <button class="combat-action-btn" @click="doAuto"><span class="action-icon">&#x21BB;</span>Auto</button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+        </div><!-- end tab content -->
+
+        <!-- TOAST CONTAINER -->
+        <div class="toast-container" x-data="toastSystem()">
+            <template x-for="toast in $store.game.toasts" :key="toast.id">
+                <div class="toast" :class="'toast-' + toast.category" x-text="toast.text" @click="$store.game.removeToast(toast.id)"></div>
+            </template>
+        </div>
+
+        <!-- MODAL SYSTEM -->
+        <div x-data="modalSystem()">
+            <!-- Prompt Modal -->
+            <div class="modal-overlay" x-show="showPromptModal" @click.self="">
+                <div class="modal">
+                    <div class="modal-title" x-text="getModalTitle()"></div>
+                    <!-- Show options if available -->
+                    <template x-if="$store.game.options.length > 0 && $store.game.prompt">
+                        <div class="modal-actions" style="margin-bottom: 1rem;">
+                            <template x-for="opt in $store.game.options" :key="opt.key">
+                                <button class="option-btn" :disabled="!opt.enabled" @click="selectOption(opt.key)" x-text="opt.label"></button>
+                            </template>
+                        </div>
+                    </template>
+                    <div x-text="$store.game.prompt" style="color: var(--text-secondary); margin-bottom: 0.75rem; font-size: 0.9rem;"></div>
+                    <form @submit.prevent="submitPrompt">
+                        <input type="text" x-model="promptValue" :placeholder="$store.game.prompt" autofocus>
+                        <div class="modal-actions">
+                            <button class="btn btn-primary btn-block" type="submit">Submit</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Options Modal (harvest, autoplay speed, etc.) -->
+            <div class="modal-overlay" x-show="showOptionsModal" @click.self="">
+                <div class="modal">
+                    <div class="modal-title" x-text="getModalTitle()"></div>
+                    <div class="modal-actions">
+                        <template x-for="opt in $store.game.options" :key="opt.key">
+                            <button class="option-btn" :disabled="!opt.enabled" @click="selectOption(opt.key)" x-text="opt.label"></button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- end game screen -->
+
+</div><!-- end #app -->
+
+<!-- Global helpers -->
+<script>
+    function loadCharacters() {
+        // No-op: character screen handles its own loading via x-effect
+    }
+</script>
+
+<script src="alpine.min.js" defer></script>
+<script src="js/auth.js"></script>
+<script src="js/websocket.js"></script>
+<script src="js/store.js"></script>
+<script src="js/components/navbar.js"></script>
+<script src="js/components/toasts.js"></script>
+<script src="js/components/modals.js"></script>
+<script src="js/screens/hub.js"></script>
+<script src="js/screens/map.js"></script>
+<script src="js/screens/combat.js"></script>
+<script src="js/screens/village.js"></script>
+<script src="js/screens/quests.js"></script>
 </body>
 </html>
