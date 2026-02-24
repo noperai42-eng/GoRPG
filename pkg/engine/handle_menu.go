@@ -1,0 +1,1787 @@
+package engine
+
+import (
+	"fmt"
+	"math/rand"
+	"strconv"
+
+	"rpg-game/pkg/data"
+	"rpg-game/pkg/game"
+	"rpg-game/pkg/models"
+)
+
+// handleInit processes the initial session state, selecting or creating a character.
+func (e *Engine) handleInit(session *GameSession) GameResponse {
+	gs := session.GameState
+
+	if len(gs.CharactersMap) == 0 {
+		// No characters exist -- create a default "Temp" character
+		player := game.GenerateCharacter("Temp", 1, 1)
+		player.EquipmentMap = map[int]models.Item{}
+		player.Inventory = []models.Item{
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+		}
+		player.ResourceStorageMap = map[string]models.Resource{}
+		game.GenerateLocationsForNewCharacter(&player)
+		gs.CharactersMap[player.Name] = player
+	}
+
+	if len(gs.CharactersMap) == 1 {
+		// Auto-select the only character
+		for _, char := range gs.CharactersMap {
+			c := char
+			if c.CompletedQuests == nil {
+				c.CompletedQuests = []string{}
+			}
+			if c.ActiveQuests == nil {
+				c.ActiveQuests = []string{"quest_1_training"}
+			}
+			gs.CharactersMap[c.Name] = c
+			session.Player = &c
+			break
+		}
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	// Multiple characters -- let the player choose
+	session.State = StateCharacterSelect
+	msgs := []GameMessage{
+		Msg("Select a character:", "system"),
+	}
+	options := []MenuOption{}
+	for name := range gs.CharactersMap {
+		options = append(options, Opt(name, name))
+	}
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "character_select"},
+		Options:  options,
+	}
+}
+
+// handleCharacterSelect processes the player's character selection from the list.
+func (e *Engine) handleCharacterSelect(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	charName := cmd.Value
+
+	char, exists := gs.CharactersMap[charName]
+	if !exists {
+		// Pick first available
+		for _, c := range gs.CharactersMap {
+			char = c
+			break
+		}
+	}
+
+	if char.CompletedQuests == nil {
+		char.CompletedQuests = []string{}
+	}
+	if char.ActiveQuests == nil {
+		char.ActiveQuests = []string{"quest_1_training"}
+	}
+	gs.CharactersMap[char.Name] = char
+	session.Player = &char
+
+	session.State = StateMainMenu
+	return BuildMainMenuResponse(session)
+}
+
+// handleCharacterCreate creates a new character with the given name.
+func (e *Engine) handleCharacterCreate(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	name := cmd.Value
+
+	if _, exists := gs.CharactersMap[name]; exists {
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg(fmt.Sprintf("Character '%s' already exists!", name), "error")},
+			State:    &StateData{Screen: "character_create"},
+			Prompt:   "Enter character name: ",
+		}
+	}
+
+	player := game.GenerateCharacter(name, 1, 1)
+	player.EquipmentMap = map[int]models.Item{}
+	player.Inventory = []models.Item{
+		game.CreateHealthPotion("small"),
+		game.CreateHealthPotion("small"),
+		game.CreateHealthPotion("small"),
+	}
+	player.ResourceStorageMap = map[string]models.Resource{}
+	player.BuiltBuildings = []models.Building{}
+	game.GenerateLocationsForNewCharacter(&player)
+
+	gs.CharactersMap[player.Name] = player
+	session.Player = &player
+
+	// Save after creation
+	game.WriteGameStateToFile(*gs, session.SaveFile)
+
+	session.State = StateMainMenu
+	resp := BuildMainMenuResponse(session)
+	resp.Messages = append([]GameMessage{
+		Msg(fmt.Sprintf("Character '%s' created!", name), "system"),
+	}, resp.Messages...)
+	return resp
+}
+
+// handleMainMenu processes the main menu selection.
+func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	player := session.Player
+
+	switch cmd.Value {
+	case "0":
+		// Character Create
+		session.State = StateCharacterCreate
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Create a new character", "system")},
+			State:    &StateData{Screen: "character_create"},
+			Prompt:   "Enter character name: ",
+		}
+
+	case "1":
+		// Harvest
+		session.State = StateHarvestSelect
+		options := []MenuOption{}
+		for i, res := range data.ResourceTypes {
+			options = append(options, Opt(res, fmt.Sprintf("%d. %s", i+1, res)))
+		}
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Select a resource to harvest:", "system")},
+			State:    &StateData{Screen: "harvest_select", Player: MakePlayerState(player)},
+			Options:  options,
+		}
+
+	case "2":
+		// Search for Locations
+		result := game.SearchLocation(player.KnownLocations, data.DiscoverableLocations)
+		msgs := []GameMessage{}
+		if result != "" {
+			player.KnownLocations = append(player.KnownLocations, result)
+			gs.CharactersMap[player.Name] = *player
+			game.WriteGameStateToFile(*gs, session.SaveFile)
+			msgs = append(msgs, Msg(fmt.Sprintf("Discovered new location: %s!", result), "narrative"))
+		} else {
+			msgs = append(msgs, Msg("No new locations discovered.", "narrative"))
+		}
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+
+	case "3":
+		// Hunt -- select location
+		session.State = StateHuntLocationSelect
+		options := []MenuOption{}
+		for _, locName := range player.KnownLocations {
+			loc, exists := gs.GameLocations[locName]
+			if !exists || loc.Type == "Base" {
+				continue
+			}
+			options = append(options, Opt(locName, fmt.Sprintf("%s (%s, Lv1-%d)", locName, loc.Type, loc.LevelMax)))
+		}
+		if len(options) == 0 {
+			session.State = StateMainMenu
+			resp := BuildMainMenuResponse(session)
+			resp.Messages = append([]GameMessage{
+				Msg("No huntable locations available! Search for new locations first.", "error"),
+			}, resp.Messages...)
+			return resp
+		}
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Select a hunting location:", "system")},
+			State:    &StateData{Screen: "hunt_location_select", Player: MakePlayerState(player)},
+			Options:  options,
+		}
+
+	case "4":
+		// Discovered Locations
+		session.State = StateDiscoveredLocations
+		msgs := []GameMessage{
+			Msg("=== Discovered Locations ===", "system"),
+		}
+		for _, locName := range player.KnownLocations {
+			loc, exists := gs.GameLocations[locName]
+			if !exists {
+				msgs = append(msgs, Msg(fmt.Sprintf("%s (unknown)", locName), "narrative"))
+				continue
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("\n--- %s (%s) ---", loc.Name, loc.Type), "narrative"))
+			if loc.Type == "Base" {
+				msgs = append(msgs, Msg("  Base location - no monsters", "narrative"))
+				continue
+			}
+			guardianCount := 0
+			for _, mob := range loc.Monsters {
+				guardianTag := ""
+				if mob.IsSkillGuardian {
+					guardianTag = fmt.Sprintf(" [GUARDIAN - %s]", mob.GuardedSkill.Name)
+					guardianCount++
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("  %s Lv%d (HP:%d/%d)%s",
+					mob.Name, mob.Level, mob.HitpointsRemaining, mob.HitpointsTotal, guardianTag), "narrative"))
+			}
+			if guardianCount > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("  %d Skill Guardian(s) present!", guardianCount), "narrative"))
+			}
+		}
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "discovered_locations", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("back", "Return to Main Menu")},
+		}
+
+	case "5":
+		// Player Stats
+		session.State = StatePlayerStats
+		gs.CharactersMap[player.Name] = *player
+		game.WriteGameStateToFile(*gs, session.SaveFile)
+
+		msgs := buildPlayerStatsMessages(player, gs)
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "player_stats", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("back", "Return to Main Menu")},
+		}
+
+	case "6":
+		// Load Save
+		session.State = StateLoadSave
+		return e.handleLoadSave(session, cmd)
+
+	case "8":
+		// Auto-Play Speed
+		session.State = StateAutoPlaySpeed
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Select auto-play speed:", "system")},
+			State:    &StateData{Screen: "autoplay_speed", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "Slow (2s per fight)"),
+				Opt("2", "Normal (1s per fight)"),
+				Opt("3", "Fast (0.5s per fight)"),
+				Opt("4", "Turbo (0.1s per fight)"),
+			},
+		}
+
+	case "9":
+		// Quest Log
+		session.State = StateQuestLog
+		msgs := buildQuestLogMessages(player, gs)
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "quest_log", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("back", "Return to Main Menu")},
+		}
+
+	case "10":
+		// Village Management
+		if gs.Villages == nil {
+			gs.Villages = make(map[string]models.Village)
+		}
+		village, exists := gs.Villages[player.VillageName]
+		if !exists {
+			village = game.GenerateVillage(player.Name)
+			player.VillageName = player.Name + "'s Village"
+			gs.Villages[player.VillageName] = village
+		}
+		session.SelectedVillage = &village
+		session.State = StateVillageMain
+		// Return a "pass-through" that the village handler will process
+		return e.handleVillageMain(session, GameCommand{Type: "init", Value: ""})
+
+	case "exit":
+		gs.CharactersMap[player.Name] = *player
+		game.WriteGameStateToFile(*gs, session.SaveFile)
+		return GameResponse{
+			Type:     "exit",
+			Messages: []GameMessage{Msg("Game saved. Goodbye!", "system")},
+		}
+
+	default:
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+}
+
+// handleHarvestSelect processes the resource harvest action.
+func (e *Engine) handleHarvestSelect(session *GameSession, cmd GameCommand) GameResponse {
+	player := session.Player
+	gs := session.GameState
+	resourceType := cmd.Value
+
+	amount := game.HarvestResource(resourceType, &player.ResourceStorageMap)
+
+	msgs := []GameMessage{
+		Msg(fmt.Sprintf("Harvested %d %s!", amount, resourceType), "loot"),
+		Msg("", "system"),
+		Msg("Current Resources:", "system"),
+	}
+	for _, res := range data.ResourceTypes {
+		r, exists := player.ResourceStorageMap[res]
+		if exists {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s: %d", res, r.Stock), "system"))
+		}
+	}
+	// Also show beast materials if any
+	for _, matName := range data.BeastMaterials {
+		r, exists := player.ResourceStorageMap[matName]
+		if exists && r.Stock > 0 {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s: %d", matName, r.Stock), "system"))
+		}
+	}
+
+	gs.CharactersMap[player.Name] = *player
+	session.State = StateMainMenu
+	resp := BuildMainMenuResponse(session)
+	resp.Messages = append(msgs, resp.Messages...)
+	return resp
+}
+
+// handleHuntLocationSelect processes the selection of a hunting location.
+func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	player := session.Player
+	locName := cmd.Value
+
+	loc, exists := gs.GameLocations[locName]
+	if !exists {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg(fmt.Sprintf("Location '%s' not found!", locName), "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	// Verify player knows this location
+	known := false
+	for _, kl := range player.KnownLocations {
+		if kl == locName {
+			known = true
+			break
+		}
+	}
+	if !known || loc.Type == "Base" {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("Cannot hunt at this location!", "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	session.SelectedLocation = locName
+	session.State = StateHuntCountSelect
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: []GameMessage{Msg(fmt.Sprintf("Hunting at %s (%s)", locName, loc.Type), "system")},
+		State:    &StateData{Screen: "hunt_count_select", Player: MakePlayerState(player)},
+		Prompt:   "How Many Hunts? ",
+	}
+}
+
+// handleHuntCountSelect processes the number of hunts and starts tracking or combat.
+func (e *Engine) handleHuntCountSelect(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	player := session.Player
+
+	huntCount, err := strconv.Atoi(cmd.Value)
+	if err != nil || huntCount <= 0 {
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Invalid number! Please enter a positive number.", "error")},
+			State:    &StateData{Screen: "hunt_count_select", Player: MakePlayerState(player)},
+			Prompt:   "How Many Hunts? ",
+		}
+	}
+
+	locName := session.SelectedLocation
+	loc, exists := gs.GameLocations[locName]
+	if !exists || len(loc.Monsters) == 0 {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("Location has no monsters!", "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	// Check if player has Tracking skill
+	hasTracking := false
+	for _, skill := range player.LearnedSkills {
+		if skill.Name == "Tracking" {
+			hasTracking = true
+			break
+		}
+	}
+
+	if hasTracking {
+		session.State = StateHuntTracking
+		msgs := []GameMessage{
+			Msg("TRACKING ACTIVE - Choose your target:", "system"),
+			Msg("============================================================", "system"),
+		}
+		options := []MenuOption{
+			Opt("0", "Random Target"),
+		}
+		for idx, monster := range loc.Monsters {
+			guardianTag := ""
+			if monster.IsSkillGuardian {
+				guardianTag = " [SKILL GUARDIAN]"
+			}
+			label := fmt.Sprintf("%s (Lv%d) HP:%d/%d%s",
+				monster.Name, monster.Level,
+				monster.HitpointsRemaining, monster.HitpointsTotal,
+				guardianTag)
+			options = append(options, Opt(strconv.Itoa(idx+1), label))
+		}
+
+		// Store hunt count in combat context temporarily
+		session.Combat = &CombatContext{
+			HuntsRemaining: huntCount,
+			Location:       &loc,
+		}
+
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "hunt_tracking", Player: MakePlayerState(player)},
+			Options:  options,
+		}
+	}
+
+	// No tracking -- pick random monster
+	mobLoc := rand.Intn(len(loc.Monsters))
+	mob := loc.Monsters[mobLoc]
+
+	return e.startCombat(session, &loc, mobLoc, mob, huntCount)
+}
+
+// handleHuntTracking processes the player's target selection when using the Tracking skill.
+func (e *Engine) handleHuntTracking(session *GameSession, cmd GameCommand) GameResponse {
+	player := session.Player
+	gs := session.GameState
+
+	locName := session.SelectedLocation
+	loc, exists := gs.GameLocations[locName]
+	if !exists {
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	huntsRemaining := 1
+	if session.Combat != nil {
+		huntsRemaining = session.Combat.HuntsRemaining
+	}
+
+	choice, err := strconv.Atoi(cmd.Value)
+	if err != nil || choice < 0 || choice > len(loc.Monsters) {
+		choice = 0 // Default to random
+	}
+
+	var mobLoc int
+	if choice == 0 {
+		mobLoc = rand.Intn(len(loc.Monsters))
+	} else {
+		mobLoc = choice - 1
+	}
+
+	mob := loc.Monsters[mobLoc]
+
+	_ = player // player is used by startCombat via session
+	return e.startCombat(session, &loc, mobLoc, mob, huntsRemaining)
+}
+
+// startCombat initializes a CombatContext and returns the initial combat display.
+func (e *Engine) startCombat(session *GameSession, location *models.Location, mobLoc int, mob models.Monster, huntsRemaining int) GameResponse {
+	player := session.Player
+	gs := session.GameState
+
+	// Handle resurrection before combat
+	if player.HitpointsRemaining <= 0 {
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.Resurrections++
+	}
+
+	session.Combat = &CombatContext{
+		Mob:            mob,
+		MobLoc:         mobLoc,
+		Location:       location,
+		Turn:           0,
+		Fled:           false,
+		PlayerWon:      false,
+		IsDefending:    false,
+		HuntsRemaining: huntsRemaining,
+	}
+
+	// Check for guards for guardian/boss fights
+	isSpecialFight := mob.IsSkillGuardian || mob.IsBoss
+	if isSpecialFight && gs.Villages != nil {
+		village, exists := gs.Villages[player.VillageName]
+		if exists {
+			var availableGuards []models.Guard
+			for _, guard := range village.ActiveGuards {
+				if !guard.Injured && guard.HitpointsRemaining > 0 {
+					g := guard
+					g.HitpointsRemaining = g.HitPoints
+					availableGuards = append(availableGuards, g)
+				}
+			}
+
+			if len(availableGuards) > 0 {
+				session.Combat.CombatGuards = availableGuards
+				session.State = StateCombatGuardPrompt
+
+				msgs := []GameMessage{}
+				if mob.IsBoss {
+					msgs = append(msgs, Msg("WARNING: BOSS FIGHT", "combat"))
+					msgs = append(msgs, Msg("Guards can DIE PERMANENTLY in boss fights!", "combat"))
+				} else if mob.IsSkillGuardian {
+					msgs = append(msgs, Msg(fmt.Sprintf("SKILL GUARDIAN: %s guards the skill: %s", mob.Name, mob.GuardedSkill.Name), "combat"))
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("Available guards: %d", len(availableGuards)), "system"))
+				for _, guard := range availableGuards {
+					msgs = append(msgs, Msg(fmt.Sprintf("  %s (Lv%d, HP:%d)", guard.Name, guard.Level, guard.HitPoints), "system"))
+				}
+				msgs = append(msgs, Msg("Bring guards to this fight?", "system"))
+
+				return GameResponse{
+					Type:     "menu",
+					Messages: msgs,
+					State: &StateData{
+						Screen: "combat_guard_prompt",
+						Player: MakePlayerState(player),
+						Combat: MakeCombatView(session),
+					},
+					Options: []MenuOption{
+						Opt("y", "Yes, bring guards"),
+						Opt("n", "No, fight alone"),
+					},
+				}
+			}
+		}
+	}
+
+	// Restore mana/stamina at combat start
+	player.ManaRemaining = player.ManaTotal
+	player.StaminaRemaining = player.StaminaTotal
+	session.Combat.Mob.ManaRemaining = session.Combat.Mob.ManaTotal
+	session.Combat.Mob.StaminaRemaining = session.Combat.Mob.StaminaTotal
+
+	session.State = StateCombat
+	return buildCombatDisplay(session)
+}
+
+// buildCombatDisplay creates the combat view response with action options.
+func buildCombatDisplay(session *GameSession) GameResponse {
+	player := session.Player
+	c := session.Combat
+	mob := &c.Mob
+
+	msgs := []GameMessage{
+		Msg(fmt.Sprintf("========== TURN %d ==========", c.Turn), "combat"),
+		Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
+			player.Name,
+			player.HitpointsRemaining, player.HitpointsTotal,
+			player.ManaRemaining, player.ManaTotal,
+			player.StaminaRemaining, player.StaminaTotal), "combat"),
+		Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
+			mob.Name,
+			mob.HitpointsRemaining, mob.HitpointsTotal,
+			mob.ManaRemaining, mob.ManaTotal,
+			mob.StaminaRemaining, mob.StaminaTotal), "combat"),
+	}
+
+	if c.Turn == 0 {
+		guardianTag := ""
+		if mob.IsSkillGuardian {
+			guardianTag = fmt.Sprintf(" [SKILL GUARDIAN - %s]", mob.GuardedSkill.Name)
+		}
+		if mob.IsBoss {
+			guardianTag = " [BOSS]"
+		}
+		msgs = []GameMessage{
+			Msg(fmt.Sprintf("Lv%d %s vs Lv%d %s (%s)%s",
+				player.Level, player.Name,
+				mob.Level, mob.Name, mob.MonsterType, guardianTag), "combat"),
+			Msg(fmt.Sprintf("Hunts remaining: %d", c.HuntsRemaining), "system"),
+			Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
+				player.Name,
+				player.HitpointsRemaining, player.HitpointsTotal,
+				player.ManaRemaining, player.ManaTotal,
+				player.StaminaRemaining, player.StaminaTotal), "combat"),
+			Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
+				mob.Name,
+				mob.HitpointsRemaining, mob.HitpointsTotal,
+				mob.ManaRemaining, mob.ManaTotal,
+				mob.StaminaRemaining, mob.StaminaTotal), "combat"),
+		}
+	}
+
+	// Show status effects
+	if len(player.StatusEffects) > 0 {
+		effectStr := fmt.Sprintf("%s effects: ", player.Name)
+		for _, eff := range player.StatusEffects {
+			effectStr += fmt.Sprintf("[%s:%d] ", eff.Type, eff.Duration)
+		}
+		msgs = append(msgs, Msg(effectStr, "buff"))
+	}
+	if len(mob.StatusEffects) > 0 {
+		effectStr := fmt.Sprintf("%s effects: ", mob.Name)
+		for _, eff := range mob.StatusEffects {
+			effectStr += fmt.Sprintf("[%s:%d] ", eff.Type, eff.Duration)
+		}
+		msgs = append(msgs, Msg(effectStr, "debuff"))
+	}
+
+	// Show guards if present
+	if c.HasGuards && len(c.CombatGuards) > 0 {
+		msgs = append(msgs, Msg("--- Guards ---", "system"))
+		for _, guard := range c.CombatGuards {
+			status := "Ready"
+			if guard.Injured {
+				status = "Injured"
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s HP:%d/%d [%s]", guard.Name, guard.HitpointsRemaining, guard.HitPoints, status), "system"))
+		}
+	}
+
+	options := []MenuOption{
+		Opt("1", "Attack"),
+		Opt("2", "Defend"),
+		Opt("3", "Use Item"),
+		Opt("4", "Use Skill"),
+		Opt("5", "Flee"),
+	}
+
+	return GameResponse{
+		Type:     "combat",
+		Messages: msgs,
+		State: &StateData{
+			Screen: "combat",
+			Player: MakePlayerState(player),
+			Combat: MakeCombatView(session),
+		},
+		Options: options,
+	}
+}
+
+// handleAutoPlaySpeed selects the speed and starts auto-play.
+func (e *Engine) handleAutoPlaySpeed(session *GameSession, cmd GameCommand) GameResponse {
+	player := session.Player
+	gs := session.GameState
+
+	speedMap := map[string]string{
+		"1": "slow",
+		"2": "normal",
+		"3": "fast",
+		"4": "turbo",
+	}
+	speed := speedMap[cmd.Value]
+	if speed == "" {
+		speed = "normal"
+	}
+
+	// Save game before auto-play
+	gs.CharactersMap[player.Name] = *player
+	game.WriteGameStateToFile(*gs, session.SaveFile)
+
+	// Find first non-Base hunt location
+	var huntLocation *models.Location
+	var huntLocationName string
+	for _, locName := range player.KnownLocations {
+		loc, exists := gs.GameLocations[locName]
+		if exists && loc.Type != "Base" {
+			l := loc
+			huntLocation = &l
+			huntLocationName = locName
+			break
+		}
+	}
+
+	if huntLocation == nil {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("No huntable locations available!", "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	// Initialize combat context for auto-play
+	session.Combat = &CombatContext{
+		IsAutoPlay:    true,
+		AutoPlaySpeed: speed,
+	}
+
+	// Run one auto-play fight
+	mobLoc := rand.Intn(len(huntLocation.Monsters))
+	mob := huntLocation.Monsters[mobLoc]
+	// Copy the mob so we don't modify the location directly during the fight
+	mobCopy := mob
+
+	fightMsgs := e.autoPlayOneFight(session, player, gs, &mobCopy, huntLocation, mobLoc, huntLocationName)
+
+	msgs := []GameMessage{
+		Msg(fmt.Sprintf("AUTO-PLAY MODE - Speed: %s", speed), "system"),
+		Msg(fmt.Sprintf("Hunting at: %s", huntLocationName), "system"),
+		Msg("", "system"),
+	}
+	msgs = append(msgs, fightMsgs...)
+
+	// Show summary
+	msgs = append(msgs, Msg("", "system"))
+	msgs = append(msgs, Msg("--- Auto-Play Statistics ---", "system"))
+	msgs = append(msgs, Msg(fmt.Sprintf("Fights: %d | Wins: %d | Deaths: %d",
+		session.Combat.AutoPlayFights, session.Combat.AutoPlayWins, session.Combat.AutoPlayDeaths), "system"))
+	msgs = append(msgs, Msg(fmt.Sprintf("Level: %d | XP: %d | Total XP Gained: %d",
+		player.Level, player.Experience, session.Combat.AutoPlayXP), "system"))
+	msgs = append(msgs, Msg(fmt.Sprintf("HP: %d/%d | MP: %d/%d | SP: %d/%d",
+		player.HitpointsRemaining, player.HitpointsTotal,
+		player.ManaRemaining, player.ManaTotal,
+		player.StaminaRemaining, player.StaminaTotal), "system"))
+
+	session.State = StateAutoPlayMenu
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+		Options: []MenuOption{
+			Opt("1", "View Inventory"),
+			Opt("2", "View Skills"),
+			Opt("3", "View Equipment"),
+			Opt("4", "Quest Log"),
+			Opt("5", "View Full Character Stats"),
+			Opt("6", "Resume Auto-Play"),
+			Opt("0", "Return to Main Menu"),
+		},
+	}
+}
+
+// autoPlayOneFight processes a full combat automatically and returns messages.
+func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character, gs *models.GameState,
+	mob *models.Monster, location *models.Location, mobLoc int, locationName string) []GameMessage {
+
+	msgs := []GameMessage{}
+
+	// Handle resurrection
+	if player.HitpointsRemaining <= 0 {
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.Resurrections++
+		session.Combat.AutoPlayDeaths++
+		msgs = append(msgs, Msg(fmt.Sprintf("RESURRECTION #%d", player.Resurrections), "system"))
+	}
+
+	// Restore resources at start
+	player.ManaRemaining = player.ManaTotal
+	player.StaminaRemaining = player.StaminaTotal
+	mob.ManaRemaining = mob.ManaTotal
+	mob.StaminaRemaining = mob.StaminaTotal
+
+	// Clear status effects
+	player.StatusEffects = []models.StatusEffect{}
+	mob.StatusEffects = []models.StatusEffect{}
+
+	session.Combat.AutoPlayFights++
+	turnCount := 0
+
+	msgs = append(msgs, Msg(fmt.Sprintf("Fight: %s (Lv%d) vs %s (Lv%d)",
+		player.Name, player.Level, mob.Name, mob.Level), "combat"))
+
+	startXP := player.Experience
+	_ = startXP
+
+	for player.HitpointsRemaining > 0 && mob.HitpointsRemaining > 0 {
+		turnCount++
+
+		// Safety valve to prevent infinite loops
+		if turnCount > 200 {
+			msgs = append(msgs, Msg("Combat timed out!", "combat"))
+			break
+		}
+
+		// Process status effects for player
+		for i := len(player.StatusEffects) - 1; i >= 0; i-- {
+			effect := &player.StatusEffects[i]
+			switch effect.Type {
+			case "poison":
+				player.HitpointsRemaining -= effect.Potency
+			case "burn":
+				player.HitpointsRemaining -= effect.Potency
+			case "regen":
+				player.HitpointsRemaining += effect.Potency
+				if player.HitpointsRemaining > player.HitpointsTotal {
+					player.HitpointsRemaining = player.HitpointsTotal
+				}
+			}
+			effect.Duration--
+			if effect.Duration <= 0 {
+				switch effect.Type {
+				case "buff_attack":
+					player.StatsMod.AttackMod -= effect.Potency
+				case "buff_defense":
+					player.StatsMod.DefenseMod -= effect.Potency
+				}
+				player.StatusEffects = append(player.StatusEffects[:i], player.StatusEffects[i+1:]...)
+			}
+		}
+
+		// Process status effects for monster
+		for i := len(mob.StatusEffects) - 1; i >= 0; i-- {
+			effect := &mob.StatusEffects[i]
+			switch effect.Type {
+			case "poison":
+				mob.HitpointsRemaining -= effect.Potency
+			case "burn":
+				mob.HitpointsRemaining -= effect.Potency
+			case "regen":
+				mob.HitpointsRemaining += effect.Potency
+				if mob.HitpointsRemaining > mob.HitpointsTotal {
+					mob.HitpointsRemaining = mob.HitpointsTotal
+				}
+			}
+			effect.Duration--
+			if effect.Duration <= 0 {
+				switch effect.Type {
+				case "buff_attack":
+					mob.StatsMod.AttackMod -= effect.Potency
+				case "buff_defense":
+					mob.StatsMod.DefenseMod -= effect.Potency
+				}
+				mob.StatusEffects = append(mob.StatusEffects[:i], mob.StatusEffects[i+1:]...)
+			}
+		}
+
+		if player.HitpointsRemaining <= 0 || mob.HitpointsRemaining <= 0 {
+			break
+		}
+
+		// Check if player is stunned
+		playerStunned := false
+		for _, eff := range player.StatusEffects {
+			if eff.Type == "stun" {
+				playerStunned = true
+				break
+			}
+		}
+
+		if !playerStunned {
+			// AI makes decision
+			decision := game.MakeAIDecision(player, mob, turnCount)
+
+			switch decision {
+			case "attack":
+				playerAttack := game.MultiRoll(player.AttackRolls) + player.StatsMod.AttackMod
+				if rand.Intn(100) < 15 {
+					playerAttack = playerAttack * 2
+				}
+				mobDef := game.MultiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
+				if playerAttack > mobDef {
+					diff := game.ApplyDamage(playerAttack-mobDef, models.Physical, mob)
+					mob.HitpointsRemaining -= diff
+				}
+
+			case "item":
+				for idx, item := range player.Inventory {
+					if item.ItemType == "consumable" {
+						game.UseConsumableItem(item, player)
+						game.RemoveItemFromInventory(&player.Inventory, idx)
+						break
+					}
+				}
+
+			default:
+				// Skill usage
+				if len(decision) > 6 && decision[:6] == "skill_" {
+					skillName := decision[6:]
+					for _, skill := range player.LearnedSkills {
+						nameMatch := skill.Name == skillName
+						if !nameMatch {
+							// Flexible matching for common AI decisions
+							switch {
+							case skill.Name == "Heal" && skillName == "heal":
+								nameMatch = true
+							case skill.Name == "Regeneration" && skillName == "regeneration":
+								nameMatch = true
+							case skill.Name == "Battle Cry" && skillName == "Battle Cry":
+								nameMatch = true
+							case skill.Name == "Shield Wall" && skillName == "Shield Wall":
+								nameMatch = true
+							}
+						}
+						if nameMatch && skill.ManaCost <= player.ManaRemaining && skill.StaminaCost <= player.StaminaRemaining {
+							player.ManaRemaining -= skill.ManaCost
+							player.StaminaRemaining -= skill.StaminaCost
+
+							if skill.Damage < 0 {
+								player.HitpointsRemaining += -skill.Damage
+								if player.HitpointsRemaining > player.HitpointsTotal {
+									player.HitpointsRemaining = player.HitpointsTotal
+								}
+							} else if skill.Damage > 0 {
+								finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, mob)
+								mob.HitpointsRemaining -= finalDamage
+							}
+
+							if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+								if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
+									player.StatusEffects = append(player.StatusEffects, skill.Effect)
+									if skill.Effect.Type == "buff_attack" {
+										player.StatsMod.AttackMod += skill.Effect.Potency
+									} else if skill.Effect.Type == "buff_defense" {
+										player.StatsMod.DefenseMod += skill.Effect.Potency
+									}
+								} else {
+									mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// Monster's turn
+		if mob.HitpointsRemaining > 0 {
+			mobStunned := false
+			for _, eff := range mob.StatusEffects {
+				if eff.Type == "stun" {
+					mobStunned = true
+					break
+				}
+			}
+
+			if !mobStunned {
+				useMonsterSkill := false
+				if len(mob.LearnedSkills) > 0 && rand.Intn(100) < 40 {
+					skill := mob.LearnedSkills[rand.Intn(len(mob.LearnedSkills))]
+					if skill.ManaCost <= mob.ManaRemaining && skill.StaminaCost <= mob.StaminaRemaining {
+						mob.ManaRemaining -= skill.ManaCost
+						mob.StaminaRemaining -= skill.StaminaCost
+						useMonsterSkill = true
+
+						if skill.Damage < 0 {
+							mob.HitpointsRemaining += -skill.Damage
+							if mob.HitpointsRemaining > mob.HitpointsTotal {
+								mob.HitpointsRemaining = mob.HitpointsTotal
+							}
+						} else if skill.Damage > 0 {
+							finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, player)
+							player.HitpointsRemaining -= finalDamage
+						}
+
+						if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+							if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" {
+								mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								if skill.Effect.Type == "buff_attack" {
+									mob.StatsMod.AttackMod += skill.Effect.Potency
+								} else if skill.Effect.Type == "buff_defense" {
+									mob.StatsMod.DefenseMod += skill.Effect.Potency
+								}
+							} else {
+								player.StatusEffects = append(player.StatusEffects, skill.Effect)
+							}
+						}
+					}
+				}
+
+				if !useMonsterSkill {
+					mobAttack := game.MultiRoll(mob.AttackRolls) + mob.StatsMod.AttackMod
+					if rand.Intn(100) < 10 {
+						mobAttack = mobAttack * 2
+					}
+					playerDef := game.MultiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+					if mobAttack > playerDef {
+						diff := game.ApplyDamage(mobAttack-playerDef, models.Physical, player)
+						player.HitpointsRemaining -= diff
+					}
+				}
+			}
+		}
+	}
+
+	// Combat resolution
+	if player.HitpointsRemaining > 0 {
+		xpGained := mob.Level * 10
+		player.Experience += xpGained
+		session.Combat.AutoPlayWins++
+		session.Combat.AutoPlayXP += xpGained
+
+		msgs = append(msgs, Msg(fmt.Sprintf("  VICTORY! (+%d XP)", xpGained), "combat"))
+
+		// Handle skill guardian reward -- auto-take scroll in auto-play
+		if mob.IsSkillGuardian {
+			scroll := game.CreateSkillScroll(mob.GuardedSkill)
+			player.Inventory = append(player.Inventory, scroll)
+			msgs = append(msgs, Msg(fmt.Sprintf("  SKILL GUARDIAN DEFEATED! Received %s", scroll.Name), "loot"))
+		}
+
+		// Loot equipment
+		for _, item := range mob.EquipmentMap {
+			game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
+		}
+
+		// Drop beast materials
+		matName, matQty := game.DropBeastMaterial(mob.MonsterType, player)
+		if matName != "" {
+			msgs = append(msgs, Msg(fmt.Sprintf("  Dropped: %d %s", matQty, matName), "loot"))
+		}
+
+		// Chance for potion
+		if rand.Intn(100) < 30 {
+			potion := game.CreateHealthPotion("small")
+			if rand.Intn(100) < 30 {
+				potion = game.CreateHealthPotion("medium")
+			}
+			player.Inventory = append(player.Inventory, potion)
+		}
+
+		// 15% chance to rescue a villager
+		if rand.Intn(100) < 15 {
+			if gs.Villages == nil {
+				gs.Villages = make(map[string]models.Village)
+			}
+			village, exists := gs.Villages[player.VillageName]
+			if !exists {
+				village = game.GenerateVillage(player.Name)
+				player.VillageName = player.Name + "'s Village"
+			}
+			game.RescueVillager(&village)
+			village.Experience += 25
+			gs.Villages[player.VillageName] = village
+			msgs = append(msgs, Msg("  A villager was rescued! (+25 Village XP)", "narrative"))
+		}
+
+		player.StatsMod = game.CalculateItemMods(player.EquipmentMap)
+		player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
+
+		// Respawn monster at location
+		loc := gs.GameLocations[locationName]
+		loc.Monsters[mobLoc] = game.GenerateBestMonster(gs, location.LevelMax, location.RarityMax)
+		gs.GameLocations[locationName] = loc
+	} else {
+		msgs = append(msgs, Msg(fmt.Sprintf("  DEFEAT! %s has fallen!", player.Name), "combat"))
+
+		// Transfer equipment to monster
+		for _, item := range player.EquipmentMap {
+			game.EquipBestItem(item, &mob.EquipmentMap, &mob.Inventory)
+		}
+
+		loc := gs.GameLocations[locationName]
+		loc.Monsters[mobLoc].StatsMod = game.CalculateItemMods(mob.EquipmentMap)
+		loc.Monsters[mobLoc].Experience += player.Level * 100
+		gs.GameLocations[locationName] = loc
+	}
+
+	// Level up
+	game.LevelUp(player)
+	loc := gs.GameLocations[locationName]
+	game.LevelUpMob(&loc.Monsters[mobLoc])
+	gs.GameLocations[locationName] = loc
+
+	// Check quest progress
+	game.CheckQuestProgress(player, gs)
+
+	// Process guard recovery
+	if gs.Villages != nil {
+		if village, exists := gs.Villages[player.VillageName]; exists {
+			game.ProcessGuardRecovery(&village)
+			gs.Villages[player.VillageName] = village
+		}
+	}
+
+	// Save player state
+	gs.CharactersMap[player.Name] = *player
+
+	return msgs
+}
+
+// handleAutoPlayMenu processes the post-auto-play menu options.
+func (e *Engine) handleAutoPlayMenu(session *GameSession, cmd GameCommand) GameResponse {
+	player := session.Player
+	gs := session.GameState
+
+	switch cmd.Value {
+	case "1":
+		// View Inventory
+		msgs := buildInventoryMessages(player)
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+
+	case "2":
+		// View Skills
+		msgs := buildSkillsMessages(player)
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+
+	case "3":
+		// View Equipment
+		msgs := buildEquipmentMessages(player)
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+
+	case "4":
+		// Quest Log
+		msgs := buildQuestLogMessages(player, gs)
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+
+	case "5":
+		// View Stats
+		msgs := buildPlayerStatsMessages(player, gs)
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+
+	case "6":
+		// Resume Auto-Play
+		session.State = StateAutoPlaySpeed
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Select auto-play speed:", "system")},
+			State:    &StateData{Screen: "autoplay_speed", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "Slow (2s per fight)"),
+				Opt("2", "Normal (1s per fight)"),
+				Opt("3", "Fast (0.5s per fight)"),
+				Opt("4", "Turbo (0.1s per fight)"),
+			},
+		}
+
+	case "0":
+		// Return to Main Menu
+		gs.CharactersMap[player.Name] = *player
+		game.WriteGameStateToFile(*gs, session.SaveFile)
+		session.Combat = nil
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("Auto-play session complete. Game saved.", "system"),
+		}, resp.Messages...)
+		return resp
+
+	default:
+		session.State = StateAutoPlayMenu
+		return GameResponse{
+			Type:     "menu",
+			Messages: []GameMessage{Msg("Invalid choice.", "error")},
+			State:    &StateData{Screen: "autoplay_menu", Player: MakePlayerState(player)},
+			Options: []MenuOption{
+				Opt("1", "View Inventory"),
+				Opt("2", "View Skills"),
+				Opt("3", "View Equipment"),
+				Opt("4", "Quest Log"),
+				Opt("5", "View Full Character Stats"),
+				Opt("6", "Resume Auto-Play"),
+				Opt("0", "Return to Main Menu"),
+			},
+		}
+	}
+}
+
+// handleQuestLog displays the quest log and returns to main menu on any input.
+func (e *Engine) handleQuestLog(session *GameSession, cmd GameCommand) GameResponse {
+	session.State = StateMainMenu
+	return BuildMainMenuResponse(session)
+}
+
+// handlePlayerStats displays the player stats and returns to main menu on any input.
+func (e *Engine) handlePlayerStats(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	player := session.Player
+
+	gs.CharactersMap[player.Name] = *player
+	game.WriteGameStateToFile(*gs, session.SaveFile)
+
+	session.State = StateMainMenu
+	return BuildMainMenuResponse(session)
+}
+
+// handleDiscoveredLocations returns to main menu on any input.
+func (e *Engine) handleDiscoveredLocations(session *GameSession, cmd GameCommand) GameResponse {
+	session.State = StateMainMenu
+	return BuildMainMenuResponse(session)
+}
+
+// handleLoadSave loads the game state from file and shows character selection.
+func (e *Engine) handleLoadSave(session *GameSession, cmd GameCommand) GameResponse {
+	loaded, err := game.LoadGameStateFromFile(session.SaveFile)
+	if err != nil {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg(fmt.Sprintf("Error loading save: %s", err.Error()), "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	session.GameState = &loaded
+	if loaded.CharactersMap == nil {
+		loaded.CharactersMap = make(map[string]models.Character)
+	}
+	if loaded.GameLocations == nil {
+		loaded.GameLocations = make(map[string]models.Location)
+	}
+
+	// Initialize quest system if needed
+	if loaded.AvailableQuests == nil {
+		loaded.AvailableQuests = make(map[string]models.Quest)
+		for id, quest := range data.StoryQuests {
+			loaded.AvailableQuests[id] = quest
+		}
+	}
+
+	session.State = StateLoadSaveCharSelect
+	msgs := []GameMessage{
+		Msg("Game loaded! Select a character:", "system"),
+	}
+	options := []MenuOption{}
+	for name, char := range loaded.CharactersMap {
+		options = append(options, Opt(name, fmt.Sprintf("%s (Lv%d)", name, char.Level)))
+	}
+
+	if len(options) == 0 {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("No characters found in save file!", "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "load_save_char_select"},
+		Options:  options,
+	}
+}
+
+// handleLoadSaveCharSelect loads the selected character from the save file.
+func (e *Engine) handleLoadSaveCharSelect(session *GameSession, cmd GameCommand) GameResponse {
+	gs := session.GameState
+	charName := cmd.Value
+
+	char, exists := gs.CharactersMap[charName]
+	if !exists {
+		// Pick first available
+		for _, c := range gs.CharactersMap {
+			char = c
+			break
+		}
+	}
+
+	// Ensure resource types are up to date
+	if char.ResourceStorageMap == nil {
+		char.ResourceStorageMap = map[string]models.Resource{}
+	}
+	game.GenerateMissingResourceType(&char)
+
+	if char.CompletedQuests == nil {
+		char.CompletedQuests = []string{}
+	}
+	if char.ActiveQuests == nil {
+		char.ActiveQuests = []string{"quest_1_training"}
+	}
+	if char.EquipmentMap == nil {
+		char.EquipmentMap = map[int]models.Item{}
+	}
+
+	gs.CharactersMap[char.Name] = char
+	session.Player = &char
+
+	session.State = StateMainMenu
+	resp := BuildMainMenuResponse(session)
+	resp.Messages = append([]GameMessage{
+		Msg(fmt.Sprintf("Loaded character: %s (Level %d)", char.Name, char.Level), "system"),
+	}, resp.Messages...)
+	return resp
+}
+
+// handleBuildSelect processes the building construction.
+func (e *Engine) handleBuildSelect(session *GameSession, cmd GameCommand) GameResponse {
+	player := session.Player
+	gs := session.GameState
+	buildingName := cmd.Value
+
+	// Find the building in available buildings
+	var targetBuilding *models.Building
+	for _, b := range data.AvailableBuildings {
+		if b.Name == buildingName {
+			bCopy := b
+			targetBuilding = &bCopy
+			break
+		}
+	}
+
+	if targetBuilding == nil {
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg(fmt.Sprintf("Building '%s' not found!", buildingName), "error"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	// Check if already built
+	for _, b := range player.BuiltBuildings {
+		if b.Name == buildingName {
+			session.State = StateMainMenu
+			resp := BuildMainMenuResponse(session)
+			resp.Messages = append([]GameMessage{
+				Msg(fmt.Sprintf("'%s' is already built!", buildingName), "error"),
+			}, resp.Messages...)
+			return resp
+		}
+	}
+
+	// Check resources
+	canBuild := true
+	missingMsgs := []GameMessage{}
+	for resName, required := range targetBuilding.RequiredResourceMap {
+		res, exists := player.ResourceStorageMap[resName]
+		if !exists || res.Stock < required {
+			canBuild = false
+			have := 0
+			if exists {
+				have = res.Stock
+			}
+			missingMsgs = append(missingMsgs, Msg(fmt.Sprintf("Need %d %s (have %d)", required, resName, have), "error"))
+		}
+	}
+
+	if !canBuild {
+		session.State = StateMainMenu
+		msgs := []GameMessage{Msg(fmt.Sprintf("Not enough resources to build %s!", buildingName), "error")}
+		msgs = append(msgs, missingMsgs...)
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+	}
+
+	// Deduct resources
+	for resName, required := range targetBuilding.RequiredResourceMap {
+		res := player.ResourceStorageMap[resName]
+		res.Stock -= required
+		player.ResourceStorageMap[resName] = res
+	}
+
+	// Add to built buildings
+	if player.BuiltBuildings == nil {
+		player.BuiltBuildings = []models.Building{}
+	}
+	player.BuiltBuildings = append(player.BuiltBuildings, *targetBuilding)
+
+	// Recalculate player stats with building bonuses
+	player.StatsMod = game.CalculateItemMods(player.EquipmentMap)
+	for _, b := range player.BuiltBuildings {
+		player.StatsMod.AttackMod += b.StatsMod.AttackMod
+		player.StatsMod.DefenseMod += b.StatsMod.DefenseMod
+		player.StatsMod.HitPointMod += b.StatsMod.HitPointMod
+	}
+	player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
+
+	gs.CharactersMap[player.Name] = *player
+	game.WriteGameStateToFile(*gs, session.SaveFile)
+
+	session.State = StateMainMenu
+	resp := BuildMainMenuResponse(session)
+	resp.Messages = append([]GameMessage{
+		Msg(fmt.Sprintf("Built %s!", buildingName), "system"),
+	}, resp.Messages...)
+	return resp
+}
+
+// --- Helper functions for building display messages ---
+
+func buildPlayerStatsMessages(player *models.Character, gs *models.GameState) []GameMessage {
+	msgs := []GameMessage{
+		Msg("============ Player Stats ============", "system"),
+		Msg(fmt.Sprintf("Name: %s", player.Name), "system"),
+		Msg(fmt.Sprintf("Level: %d", player.Level), "system"),
+		Msg(fmt.Sprintf("Experience: %d / %d", player.Experience, player.Level*100), "system"),
+		Msg(fmt.Sprintf("HP: %d/%d (Natural: %d)", player.HitpointsRemaining, player.HitpointsTotal, player.HitpointsNatural), "system"),
+		Msg(fmt.Sprintf("MP: %d/%d (Natural: %d)", player.ManaRemaining, player.ManaTotal, player.ManaNatural), "system"),
+		Msg(fmt.Sprintf("SP: %d/%d (Natural: %d)", player.StaminaRemaining, player.StaminaTotal, player.StaminaNatural), "system"),
+		Msg(fmt.Sprintf("Attack Rolls: %d", player.AttackRolls), "system"),
+		Msg(fmt.Sprintf("Defense Rolls: %d", player.DefenseRolls), "system"),
+		Msg(fmt.Sprintf("Attack Mod: +%d", player.StatsMod.AttackMod), "system"),
+		Msg(fmt.Sprintf("Defense Mod: +%d", player.StatsMod.DefenseMod), "system"),
+		Msg(fmt.Sprintf("HP Mod: +%d", player.StatsMod.HitPointMod), "system"),
+		Msg(fmt.Sprintf("Resurrections: %d", player.Resurrections), "system"),
+	}
+
+	// Equipment
+	if len(player.EquipmentMap) > 0 {
+		msgs = append(msgs, Msg("", "system"))
+		msgs = append(msgs, Msg("--- Equipped Items ---", "system"))
+		slotNames := map[int]string{
+			0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
+			4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
+		}
+		for slot, item := range player.EquipmentMap {
+			slotName := slotNames[slot]
+			if slotName == "" {
+				slotName = fmt.Sprintf("Slot %d", slot)
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("  [%s] %s (Rarity %d, CP:%d)",
+				slotName, item.Name, item.Rarity, item.CP), "system"))
+		}
+	}
+
+	// Skills
+	if len(player.LearnedSkills) > 0 {
+		msgs = append(msgs, Msg("", "system"))
+		msgs = append(msgs, Msg("--- Learned Skills ---", "system"))
+		for _, skill := range player.LearnedSkills {
+			costStr := ""
+			if skill.ManaCost > 0 {
+				costStr += fmt.Sprintf("%dMP ", skill.ManaCost)
+			}
+			if skill.StaminaCost > 0 {
+				costStr += fmt.Sprintf("%dSP ", skill.StaminaCost)
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s [%s] - %s", skill.Name, costStr, skill.Description), "system"))
+		}
+	}
+
+	// Known Locations
+	if len(player.KnownLocations) > 0 {
+		msgs = append(msgs, Msg("", "system"))
+		msgs = append(msgs, Msg("--- Known Locations ---", "system"))
+		for _, loc := range player.KnownLocations {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s", loc), "system"))
+		}
+	}
+
+	// Resources
+	msgs = append(msgs, Msg("", "system"))
+	msgs = append(msgs, Msg("--- Resources ---", "system"))
+	for _, res := range data.ResourceTypes {
+		r, exists := player.ResourceStorageMap[res]
+		if exists {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s: %d", res, r.Stock), "system"))
+		}
+	}
+	for _, matName := range data.BeastMaterials {
+		r, exists := player.ResourceStorageMap[matName]
+		if exists && r.Stock > 0 {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s: %d", matName, r.Stock), "system"))
+		}
+	}
+
+	// Built Buildings
+	if len(player.BuiltBuildings) > 0 {
+		msgs = append(msgs, Msg("", "system"))
+		msgs = append(msgs, Msg("--- Built Buildings ---", "system"))
+		for _, b := range player.BuiltBuildings {
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s", b.Name), "system"))
+		}
+	}
+
+	msgs = append(msgs, Msg("======================================", "system"))
+
+	return msgs
+}
+
+func buildQuestLogMessages(player *models.Character, gs *models.GameState) []GameMessage {
+	if gs.AvailableQuests == nil {
+		gs.AvailableQuests = make(map[string]models.Quest)
+		for k, v := range data.StoryQuests {
+			gs.AvailableQuests[k] = v
+		}
+	}
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{"quest_1_training"}
+	}
+
+	msgs := []GameMessage{
+		Msg("====== QUEST LOG ======", "system"),
+		Msg("", "system"),
+		Msg("Active Quests:", "system"),
+	}
+
+	if len(player.ActiveQuests) == 0 {
+		msgs = append(msgs, Msg("  No active quests.", "narrative"))
+	}
+	for _, questID := range player.ActiveQuests {
+		quest, exists := gs.AvailableQuests[questID]
+		if !exists {
+			continue
+		}
+
+		// Update current value for level quests
+		if quest.Requirement.Type == "level" {
+			quest.Requirement.CurrentValue = player.Level
+			gs.AvailableQuests[questID] = quest
+		}
+
+		msgs = append(msgs, Msg(fmt.Sprintf("  > %s", quest.Name), "narrative"))
+		msgs = append(msgs, Msg(fmt.Sprintf("    %s", quest.Description), "narrative"))
+
+		switch quest.Requirement.Type {
+		case "level":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: Level %d / %d",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
+		case "boss_kill":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d %s defeated",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue, quest.Requirement.TargetName), "narrative"))
+		case "location":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d locations explored in %s",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue, quest.Requirement.TargetName), "narrative"))
+		}
+
+		msgs = append(msgs, Msg(fmt.Sprintf("    Reward: %d XP", quest.Reward.XP), "narrative"))
+	}
+
+	msgs = append(msgs, Msg("", "system"))
+	msgs = append(msgs, Msg("Completed Quests:", "system"))
+
+	if len(player.CompletedQuests) == 0 {
+		msgs = append(msgs, Msg("  No completed quests yet.", "narrative"))
+	}
+	for _, questID := range player.CompletedQuests {
+		quest, exists := gs.AvailableQuests[questID]
+		if !exists {
+			continue
+		}
+		msgs = append(msgs, Msg(fmt.Sprintf("  [DONE] %s", quest.Name), "narrative"))
+	}
+
+	msgs = append(msgs, Msg("========================", "system"))
+
+	return msgs
+}
+
+func buildInventoryMessages(player *models.Character) []GameMessage {
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("INVENTORY - %s", player.Name), "system"),
+		Msg("============================================================", "system"),
+	}
+
+	if len(player.Inventory) == 0 {
+		msgs = append(msgs, Msg("Your inventory is empty.", "system"))
+	} else {
+		consumables := []models.Item{}
+		skillScrolls := []models.Item{}
+		equipment := []models.Item{}
+
+		for _, item := range player.Inventory {
+			switch item.ItemType {
+			case "consumable":
+				consumables = append(consumables, item)
+			case "skill_scroll":
+				skillScrolls = append(skillScrolls, item)
+			default:
+				equipment = append(equipment, item)
+			}
+		}
+
+		if len(consumables) > 0 {
+			msgs = append(msgs, Msg("", "system"))
+			msgs = append(msgs, Msg("CONSUMABLES:", "system"))
+			potionCount := make(map[string]int)
+			for _, item := range consumables {
+				potionCount[item.Name]++
+			}
+			for name, count := range potionCount {
+				msgs = append(msgs, Msg(fmt.Sprintf("  %s x%d", name, count), "system"))
+			}
+		}
+
+		if len(skillScrolls) > 0 {
+			msgs = append(msgs, Msg("", "system"))
+			msgs = append(msgs, Msg("SKILL SCROLLS:", "system"))
+			for i, scroll := range skillScrolls {
+				msgs = append(msgs, Msg(fmt.Sprintf("  %d. %s (Skill: %s, Crafting Value: %d)",
+					i+1, scroll.Name, scroll.SkillScroll.Skill.Name, scroll.SkillScroll.CraftingValue), "system"))
+			}
+		}
+
+		if len(equipment) > 0 {
+			msgs = append(msgs, Msg("", "system"))
+			msgs = append(msgs, Msg("EQUIPMENT (Unequipped):", "system"))
+			for i, item := range equipment {
+				msgs = append(msgs, Msg(fmt.Sprintf("  %d. %s (Rarity %d, CP: %d)",
+					i+1, item.Name, item.Rarity, item.CP), "system"))
+			}
+		}
+	}
+
+	msgs = append(msgs, Msg(fmt.Sprintf("\nTotal Items: %d", len(player.Inventory)), "system"))
+	msgs = append(msgs, Msg("============================================================", "system"))
+
+	return msgs
+}
+
+func buildSkillsMessages(player *models.Character) []GameMessage {
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("LEARNED SKILLS - %s", player.Name), "system"),
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("Level: %d | MP: %d/%d | SP: %d/%d",
+			player.Level, player.ManaRemaining, player.ManaTotal,
+			player.StaminaRemaining, player.StaminaTotal), "system"),
+	}
+
+	if len(player.LearnedSkills) == 0 {
+		msgs = append(msgs, Msg("No skills learned yet.", "system"))
+	} else {
+		for i, skill := range player.LearnedSkills {
+			msgs = append(msgs, Msg("", "system"))
+			msgs = append(msgs, Msg(fmt.Sprintf("%d. %s", i+1, skill.Name), "system"))
+
+			if skill.ManaCost > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("   Cost: %d MP", skill.ManaCost), "system"))
+			}
+			if skill.StaminaCost > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("   Cost: %d SP", skill.StaminaCost), "system"))
+			}
+			if skill.Damage > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("   Damage: %d %s", skill.Damage, skill.DamageType), "system"))
+			} else if skill.Damage < 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("   Healing: %d HP", -skill.Damage), "system"))
+			}
+			if skill.Effect.Type != "none" && skill.Effect.Type != "" {
+				msgs = append(msgs, Msg(fmt.Sprintf("   Effect: %s (%d turns, potency %d)",
+					skill.Effect.Type, skill.Effect.Duration, skill.Effect.Potency), "system"))
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("   %s", skill.Description), "system"))
+		}
+	}
+
+	msgs = append(msgs, Msg("", "system"))
+	msgs = append(msgs, Msg(fmt.Sprintf("Total Skills: %d", len(player.LearnedSkills)), "system"))
+	msgs = append(msgs, Msg("============================================================", "system"))
+
+	return msgs
+}
+
+func buildEquipmentMessages(player *models.Character) []GameMessage {
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("EQUIPPED ITEMS - %s", player.Name), "system"),
+		Msg("============================================================", "system"),
+	}
+
+	slotNames := map[int]string{
+		0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
+		4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
+	}
+
+	if len(player.EquipmentMap) == 0 {
+		msgs = append(msgs, Msg("No equipment equipped.", "system"))
+	} else {
+		for slot, item := range player.EquipmentMap {
+			slotName := slotNames[slot]
+			if slotName == "" {
+				slotName = fmt.Sprintf("Slot %d", slot)
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("[%s] %s (Rarity %d, CP: %d)",
+				slotName, item.Name, item.Rarity, item.CP), "system"))
+			if item.StatsMod.AttackMod > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("  +%d Attack", item.StatsMod.AttackMod), "system"))
+			}
+			if item.StatsMod.DefenseMod > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("  +%d Defense", item.StatsMod.DefenseMod), "system"))
+			}
+			if item.StatsMod.HitPointMod > 0 {
+				msgs = append(msgs, Msg(fmt.Sprintf("  +%d HP", item.StatsMod.HitPointMod), "system"))
+			}
+		}
+
+		msgs = append(msgs, Msg("", "system"))
+		msgs = append(msgs, Msg("Total Stats from Equipment:", "system"))
+		msgs = append(msgs, Msg(fmt.Sprintf("  Attack:  +%d", player.StatsMod.AttackMod), "system"))
+		msgs = append(msgs, Msg(fmt.Sprintf("  Defense: +%d", player.StatsMod.DefenseMod), "system"))
+		msgs = append(msgs, Msg(fmt.Sprintf("  HP:      +%d", player.StatsMod.HitPointMod), "system"))
+	}
+
+	msgs = append(msgs, Msg(fmt.Sprintf("\nEquipped Items: %d", len(player.EquipmentMap)), "system"))
+	msgs = append(msgs, Msg("============================================================", "system"))
+
+	return msgs
+}

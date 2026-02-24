@@ -1,0 +1,270 @@
+/* ===== Combat HUD ===== */
+#combat-hud {
+    background-color: var(--bg-panel);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.75rem 1rem;
+    flex-shrink: 0;
+}
+
+/* Turn Counter */
+#combat-turn {
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--accent);
+    padding: 0.4rem 0;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* Combatant Layout */
+.combatant {
+    padding: 0.5rem 0;
+}
+
+.combatant + .combatant {
+    border-top: 1px solid rgba(15, 52, 96, 0.5);
+    margin-top: 0.25rem;
+    padding-top: 0.75rem;
+}
+
+.combatant-name {
+    font-weight: bold;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 0.35rem;
+}
+
+/* Bar Group */
+.bar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+/* Base Bar */
+.bar {
+    position: relative;
+    height: 20px;
+    background-color: #2a2a3e;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+    min-width: 0;
+}
+
+.bar-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* HP Bar - gradient from green to red as health decreases */
+.hp-bar .bar-fill {
+    background: linear-gradient(90deg, #ff6b6b, #51cf66);
+    background-size: 200% 100%;
+}
+
+/* Dynamic HP coloring via width-based appearance */
+.hp-bar .bar-fill {
+    background: #51cf66;
+}
+
+.hp-bar .bar-fill[data-percent="high"] {
+    background: #51cf66;
+}
+
+.hp-bar .bar-fill[data-percent="mid"] {
+    background: linear-gradient(90deg, #ffd43b, #51cf66);
+}
+
+.hp-bar .bar-fill[data-percent="low"] {
+    background: linear-gradient(90deg, #ff6b6b, #ffd43b);
+}
+
+.hp-bar .bar-fill[data-percent="critical"] {
+    background: #ff6b6b;
+    animation: pulse-critical 1s ease-in-out infinite;
+}
+
+@keyframes pulse-critical {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* MP Bar */
+.mp-bar .bar-fill {
+    background: #74c0fc;
+}
+
+/* SP Bar */
+.sp-bar .bar-fill {
+    background: #ffd43b;
+}
+
+/* ===== Status Effects ===== */
+.effects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+    min-height: 1.4rem;
+}
+
+.effect-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.effect-badge .effect-duration {
+    font-size: 0.65rem;
+    opacity: 0.85;
+}
+
+/* Effect Type Colors */
+.effect-badge.poison {
+    background-color: #51cf66;
+    color: #1a1a2e;
+}
+
+.effect-badge.burn {
+    background-color: #ff6b6b;
+}
+
+.effect-badge.stun {
+    background-color: #ffd43b;
+    color: #1a1a2e;
+}
+
+.effect-badge.regen {
+    background-color: #51cf66;
+    color: #1a1a2e;
+}
+
+.effect-badge.buff_attack {
+    background-color: #ffa94d;
+    color: #1a1a2e;
+}
+
+.effect-badge.buff_defense {
+    background-color: #74c0fc;
+    color: #1a1a2e;
+}
+
+/* ===== Guard Panel ===== */
+#guard-panel {
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.guard-header {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: var(--color-system);
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+#guard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.guard-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 0.6rem;
+    background-color: var(--bg-primary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.guard-entry .guard-name {
+    color: var(--text-primary);
+    font-weight: bold;
+}
+
+.guard-entry .guard-hp {
+    color: var(--color-heal);
+    font-size: 0.75rem;
+}
+
+.guard-entry .guard-hp.injured {
+    color: var(--color-damage);
+    font-weight: bold;
+}
+
+.guard-entry .guard-hp.critical {
+    color: var(--color-damage);
+    font-weight: bold;
+    animation: pulse-critical 1s ease-in-out infinite;
+}
+
+/* ===== Combat Responsive ===== */
+@media (min-width: 600px) {
+    #combat-hud {
+        display: block;
+    }
+
+    #combat-hud .combatant {
+        display: grid;
+        grid-template-columns: 120px 1fr auto;
+        grid-template-rows: auto;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    #combat-hud .combatant .combatant-name {
+        margin-bottom: 0;
+    }
+
+    #combat-hud .combatant .effects {
+        margin-top: 0;
+        justify-content: flex-end;
+    }
+}
+
+@media (max-width: 599px) {
+    .bar {
+        height: 16px;
+    }
+
+    .bar-text {
+        font-size: 0.65rem;
+    }
+
+    .effect-badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.35rem;
+    }
+
+    #combat-turn {
+        font-size: 0.95rem;
+    }
+}

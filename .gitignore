@@ -1,0 +1,19 @@
+# Binaries
+fight-cli/fight-cli
+fight-cli/__debug_bin*
+/migrate
+*.exe
+
+# Game save data
+fight-cli/gamestate.json
+*.db
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Claude local settings
+.claude/
