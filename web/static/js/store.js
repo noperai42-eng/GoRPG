@@ -15,6 +15,8 @@ document.addEventListener('alpine:init', () => {
         pendingAction: null,     // for two-step command chains
         dropdown: null,          // 'items' | 'skills' | null - combat dropdown
         showCompletedQuests: false,
+        autoHunting: false,      // true when auto-hunting through multiple fights
+        _autoHuntTimer: null,    // timer ID for auto-hunt delay
         _toastId: 0,
 
         get inCombat() { return this.combat !== null; },
@@ -94,6 +96,22 @@ document.addEventListener('alpine:init', () => {
                 if (!pa.expectScreen) {
                     this.pendingAction = null;
                 }
+            }
+
+            // Auto-hunt: if active and we're in combat, schedule next auto-fight
+            if (this.autoHunting && this.combat && this.serverScreen === 'combat') {
+                clearTimeout(this._autoHuntTimer);
+                this._autoHuntTimer = setTimeout(() => {
+                    if (this.autoHunting && this.combat) {
+                        this.sendCommand('select', '6');
+                    }
+                }, 2000);
+            }
+
+            // Stop auto-hunting when combat ends
+            if (!this.combat && this.autoHunting) {
+                this.autoHunting = false;
+                clearTimeout(this._autoHuntTimer);
             }
 
             // Screen routing based on serverScreen

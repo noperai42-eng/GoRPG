@@ -832,11 +832,15 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	mob := &combat.Mob
 	combat.PlayerWon = true
 
-	xpGained := mob.Level * 10
+	xpGained := scaledXP(player.Level, mob.Level)
 	player.Experience += xpGained
 
 	msgs = append(msgs, Msg("========================================", "system"))
-	msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (+%d XP)", player.Name, xpGained), "combat"))
+	if xpGained > 0 {
+		msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (+%d XP)", player.Name, xpGained), "combat"))
+	} else {
+		msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (No XP - enemy too weak)", player.Name), "combat"))
+	}
 	msgs = append(msgs, Msg("========================================", "system"))
 
 	// Track autoplay stats
@@ -1306,6 +1310,25 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 		},
 		Options: combatActionOptions(),
 	}
+}
+
+// scaledXP calculates XP gained from defeating a monster based on level difference.
+// Monsters 10+ levels below the player grant 0 XP. Equal or higher level grants full XP.
+// In between, XP scales linearly.
+func scaledXP(playerLevel, mobLevel int) int {
+	diff := playerLevel - mobLevel // positive means player is higher
+	if diff >= 10 {
+		return 0
+	}
+	baseXP := mobLevel * 10
+	if diff <= 0 {
+		// Monster is equal or higher level: full XP + bonus
+		bonus := (-diff) * 5
+		return baseXP + bonus
+	}
+	// Monster is 1-9 levels below: scale down linearly (90% at -1, 80% at -2, ... 10% at -9)
+	pct := 100 - (diff * 10)
+	return baseXP * pct / 100
 }
 
 // combatActionOptions returns the standard set of combat action menu options.

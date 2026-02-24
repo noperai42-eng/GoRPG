@@ -642,8 +642,8 @@
                                 </div>
                             </template>
 
-                            <!-- Normal combat actions -->
-                            <template x-if="!showGuardPrompt && !showSkillReward">
+                            <!-- Normal combat actions (hidden during auto-hunt) -->
+                            <template x-if="!showGuardPrompt && !showSkillReward && !$store.game.autoHunting">
                                 <div style="display: flex; gap: 0.5rem; width: 100%;">
                                     <button class="combat-action-btn" @click="doAttack"><span class="action-icon">&#x2694;</span>Attack</button>
                                     <button class="combat-action-btn" @click="doDefend"><span class="action-icon">&#x1F6E1;</span>Defend</button>
@@ -651,6 +651,14 @@
                                     <button class="combat-action-btn" @click="doSkill"><span class="action-icon">&#x2B50;</span>Skill</button>
                                     <button class="combat-action-btn" @click="doFlee"><span class="action-icon">&#x1F3C3;</span>Flee</button>
                                     <button class="combat-action-btn" @click="doAuto"><span class="action-icon">&#x21BB;</span>Auto</button>
+                                </div>
+                            </template>
+
+                            <!-- Auto-hunt active: show stop button -->
+                            <template x-if="!showGuardPrompt && !showSkillReward && $store.game.autoHunting">
+                                <div style="display: flex; gap: 0.5rem; width: 100%; align-items: center; justify-content: center;">
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;">Auto-hunting in progress...</span>
+                                    <button class="combat-action-btn" style="background: var(--color-error); min-width: 120px;" @click="stopAuto"><span class="action-icon">&#x25A0;</span>Stop</button>
                                 </div>
                             </template>
                         </div>
@@ -716,16 +724,16 @@
 </script>
 
 <script src="alpine.min.js" defer></script>
-<script src="js/auth.js"></script>
-<script src="js/websocket.js"></script>
-<script src="js/store.js"></script>
-<script src="js/components/navbar.js"></script>
-<script src="js/components/toasts.js"></script>
-<script src="js/components/modals.js"></script>
-<script src="js/screens/hub.js"></script>
-<script src="js/screens/map.js"></script>
-<script src="js/screens/combat.js"></script>
-<script src="js/screens/village.js"></script>
-<script src="js/screens/quests.js"></script>
+<script src="js/auth.js?v=2"></script>
+<script src="js/websocket.js?v=2"></script>
+<script src="js/store.js?v=2"></script>
+<script src="js/components/navbar.js?v=2"></script>
+<script src="js/components/toasts.js?v=2"></script>
+<script src="js/components/modals.js?v=2"></script>
+<script src="js/screens/hub.js?v=2"></script>
+<script src="js/screens/map.js?v=2"></script>
+<script src="js/screens/combat.js?v=2"></script>
+<script src="js/screens/village.js?v=2"></script>
+<script src="js/screens/quests.js?v=2"></script>
 </body>
 </html>

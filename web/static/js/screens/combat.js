@@ -75,7 +75,13 @@ function combatScreen() {
         },
         doAuto() {
             this.g.dropdown = null;
+            // Enable auto-hunting for all remaining hunts
+            this.g.autoHunting = true;
             this.g.sendCommand('select', '6');
+        },
+        stopAuto() {
+            this.g.autoHunting = false;
+            clearTimeout(this.g._autoHuntTimer);
         },
 
         closeDropdown() {
