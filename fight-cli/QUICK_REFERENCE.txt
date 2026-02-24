@@ -1,0 +1,174 @@
+╔══════════════════════════════════════════════════════════════╗
+║           TRACKING & GUARDIAN SPAWNING QUICK REF             ║
+╚══════════════════════════════════════════════════════════════╝
+
+🔍 TRACKING SKILL
+─────────────────────────────────────────────────────────────
+What:    Utility skill that lets you see and choose monsters
+Cost:    0 MP, 0 SP (passive once learned)
+Effect:  Shows all 20 monsters at location before fighting
+
+HOW TO USE:
+1. Learn Tracking from a Skill Guardian
+2. Go hunt (option 3)
+3. See monster selection menu
+4. Choose target by number (1-20)
+5. Or enter 0 for random
+
+EXAMPLE DISPLAY:
+🔍 TRACKING ACTIVE - Choose your target:
+============================================================
+1. slime (Lv12) - HP:6/6
+2. goblin (Lv15) - HP:8/8
+3. Fire Elemental (Lv18) - HP:24/24 🎯 [SKILL GUARDIAN]
+4. orc (Lv14) - HP:10/10
+... (16 more)
+============================================================
+Choose target (1-20, or 0 for random):
+
+🎯 GUARDIAN SPAWNING
+─────────────────────────────────────────────────────────────
+SPAWN RATES BY LOCATION LEVEL:
+
+< Level 10      →  0 guardians  (Training Hall, Forest, Lake)
+Level 10-29     →  1 guardian   (Hunters Lodge)
+Level 30-99     →  2 guardians  (Forest Ruins)
+Level 100+      →  3 guardians  (Ancient Dungeon, The Tower)
+
+GUARDABLE SKILLS (8):
+• Fireball          • Shield Wall
+• Ice Shard         • Battle Cry
+• Lightning Bolt    • Poison Blade
+• Heal              • Regeneration
+
+NOT GUARDABLE:
+✗ Power Strike (starting skill)
+✗ Tracking (special utility)
+
+GUARDIAN IDENTIFICATION:
+Location list shows: 🎯 [GUARDIAN - Fireball]
+Tracking shows:      🎯 [SKILL GUARDIAN]
+Combat:              Enhanced stats (2x HP, +2 rolls)
+
+📊 STRATEGIC GUIDE
+─────────────────────────────────────────────────────────────
+PRIORITY ACQUISITION:
+1. Tracking        → See/choose monsters (ESSENTIAL)
+2. Heal            → Survival
+3. Fireball/Lightning → Main damage
+4. Ice Shard       → Secondary element
+5. Shield Wall     → Defense
+6. Others          → As needed
+
+LOCATION PROGRESSION:
+Level 1-5    → Training Hall (0 guardians, practice)
+Level 5-10   → Forest/Lake/Hills (0 guardians, level up)
+Level 10-15  → Hunters Lodge (1 guardian, get Tracking!)
+Level 15-30  → Forest Ruins (2 guardians, collect skills)
+Level 30+    → Ancient Dungeon/Tower (3 guardians, endgame)
+
+🎮 GAMEPLAY TIPS
+─────────────────────────────────────────────────────────────
+WITHOUT TRACKING:
+✗ Random monster selection
+✗ Can't see what you'll fight
+✗ Might hit guardians unprepared
+✗ Less strategic
+
+WITH TRACKING:
+✓ See all 20 monsters
+✓ Choose your battles
+✓ Target/avoid guardians
+✓ Level safely then challenge
+✓ Hunt specific skills
+
+TRACKING STRATEGIES:
+
+Strategy 1: SAFE LEVELING
+→ Choose lowest level monsters (e.g., choice 1-5)
+→ Build XP without risk
+→ Heal between fights
+
+Strategy 2: GUARDIAN HUNTING
+→ Look for 🎯 tags
+→ Choose guardian numbers
+→ Prepare with full HP/MP/SP
+→ Learn skills strategically
+
+Strategy 3: LEVEL MATCHING
+→ Fight monsters near your level
+→ Optimal XP gain
+→ Appropriate challenge
+
+Strategy 4: SKILL TARGETING
+→ Note which guardian has desired skill
+→ Level up on easy monsters first
+→ Challenge that specific guardian
+→ Absorb or take scroll
+
+⚠️  IMPORTANT NOTES
+─────────────────────────────────────────────────────────────
+• Tracking ONLY works in manual hunt mode (option 3)
+• Auto-play (option 8) still uses random selection
+• Guardians spawn when game starts/location loads
+• Defeated guardians become regular monsters
+• Each location has different random guardians
+• View monsters at location with option 4
+
+📋 MENU OPTIONS
+─────────────────────────────────────────────────────────────
+0 = Character Create
+1 = Harvest Resources
+2 = Search for new location
+3 = Hunt (uses Tracking if learned)
+4 = Print Discovered Locations (see guardians!)
+5 = Player Stats
+6 = Load Save
+8 = AUTO-PLAY MODE (no Tracking)
+9 = Quest Log
+
+🔧 TESTING CHECKLIST
+─────────────────────────────────────────────────────────────
+□ Start new game
+□ Check option 4 - see guardian spawn messages
+□ Visit Training Hall - 0 guardians
+□ Visit Hunters Lodge - 1 guardian
+□ Visit Forest Ruins - 2 guardians
+□ Hunt without Tracking - random selection
+□ Defeat guardian, learn Tracking
+□ Hunt with Tracking - see selection menu
+□ Choose specific monster - verify correct fight
+□ Choose guardian - verify guardian fight
+□ Option 0 for random - verify random selection
+
+💡 QUICK START
+─────────────────────────────────────────────────────────────
+NEW PLAYER:
+1. Create character (option 0)
+2. Level at Training Hall to 10
+3. Visit Hunters Lodge
+4. View monsters (option 4) - note guardian
+5. Hunt and hope for Tracking guardian
+6. Once you have Tracking:
+   → Choose weak monsters to level
+   → Choose guardians to learn skills
+   → Strategic progression enabled!
+
+TESTING GUARDIANS:
+1. ./fight-cli
+2. Option 4 (Print Locations)
+3. Look for guardian spawn messages
+4. Note which locations have guardians
+5. Hunt there (option 3)
+6. With Tracking: see guardian in list
+7. Without Tracking: random chance
+
+═══════════════════════════════════════════════════════════════
+
+KEY TAKEAWAY:
+Tracking + Guardian Spawning = Strategic Gameplay
+
+Before: Random fights, random skills, no control
+After:  See monsters, choose targets, hunt skills strategically
+
+Get Tracking skill ASAP for best experience! 🔍🎯

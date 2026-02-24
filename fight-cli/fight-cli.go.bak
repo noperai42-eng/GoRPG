@@ -1,0 +1,5886 @@
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"os"
+	"strconv"
+	"time"
+)
+
+//Add Client/Server setup
+
+//Create a locationType with a Map of Name to int
+//only Generate certain types of mobs for certain locations
+//Beasts, Monsters, Animals
+
+//Generate Mobs for each location and make a part of the combat loop where we let them fight at each location and level up.
+
+//Create tiers of NPC's where each Tier allows for additional stats and difficulty
+//common, Rare, Elite, Mini Boss, Boss, King, Emporer
+
+//Skills, Recruit, Tame
+//Allow Characters and Bases to have groups of NPC's for Defense
+
+//Save a Villager
+
+//Gate Keepers (block access to areas)
+
+//Merchants
+
+type GameState struct {
+	CharactersMap   map[string]Character
+	GameLocations   map[string]Location
+	AvailableQuests map[string]Quest
+	Villages        map[string]Village // Player name -> their village
+}
+
+type Village struct {
+	Name              string
+	Level             int
+	Experience        int
+	Villagers         []Villager
+	Defenses          []Defense
+	Traps             []Trap
+	ResourcePerTick   map[string]int // Auto-collected resources per game tick
+	UnlockedCrafting  []string       // "potions", "armor", "weapons", "skill_upgrades"
+	DefenseLevel      int
+	LastTideTime      int64 // Unix timestamp of last monster tide
+	TideInterval      int   // Seconds between tides
+	ActiveGuards      []Guard
+}
+
+type Villager struct {
+	Name         string
+	Role         string // "harvester" or "guard"
+	Level        int
+	Efficiency   int // For harvesters: resources per tick; For guards: combat bonus
+	AssignedTask string
+	HarvestType  string // Which resource they harvest
+}
+
+type Guard struct {
+	Name               string
+	Level              int
+	HitPoints          int
+	HitpointsNatural   int // Base HP before equipment
+	HitpointsRemaining int // Current HP
+	AttackBonus        int
+	DefenseBonus       int
+	AttackRolls        int // Dice rolls for attack
+	DefenseRolls       int // Dice rolls for defense
+	Hired              bool
+	Cost               int // Gold cost to hire
+	Inventory          []Item
+	EquipmentMap       map[int]Item
+	StatsMod           StatMod // Bonus from equipment
+	Injured            bool    // Currently injured
+	RecoveryTime       int     // Turns until recovered (0 = ready)
+	StatusEffects      []StatusEffect
+	Resistances        map[DamageType]float64
+}
+
+type Defense struct {
+	Name        string
+	Level       int
+	Defense     int
+	AttackPower int
+	Range       int
+	Built       bool
+	Type        string // "wall", "tower", "trap"
+}
+
+type Trap struct {
+	Name        string
+	Type        string // "spike", "fire", "ice", "poison"
+	Damage      int
+	Duration    int // How many waves it lasts
+	Remaining   int // Waves remaining
+	TriggerRate int // Percent chance to trigger per enemy
+}
+
+type CraftingRecipe struct {
+	Name              string
+	Type              string // "potion", "armor", "weapon", "skill_upgrade"
+	RequiredResources map[string]int
+	RequiredLevel     int // Village level required
+	Output            Item
+	SkillUpgrade      SkillUpgrade
+}
+
+type SkillUpgrade struct {
+	SkillName      string
+	UpgradeLevel   int
+	DamageIncrease int
+	CostReduction  int
+	Description    string
+}
+
+type Character struct {
+	Name               string
+	Level              int
+	Experience         int
+	ExpSinceLevel      int
+	HitpointsTotal     int
+	HitpointsNatural   int
+	HitpointsRemaining int
+	ManaTotal          int
+	ManaNatural        int
+	ManaRemaining      int
+	StaminaTotal       int
+	StaminaNatural     int
+	StaminaRemaining   int
+	AttackRolls        int
+	DefenseRolls       int
+	StatsMod           StatMod
+	Resurrections      int
+	Inventory          []Item
+	EquipmentMap       map[int]Item
+	ResourceStorageMap map[string]Resource
+	KnownLocations     []string
+	BuiltBuildings     []Building
+	LearnedSkills      []Skill
+	StatusEffects      []StatusEffect
+	Resistances        map[DamageType]float64
+	CompletedQuests    []string
+	ActiveQuests       []string
+	VillageName        string // Reference to player's village
+}
+
+type Quest struct {
+	ID          string
+	Name        string
+	Description string
+	Type        string // "talk", "boss", "fetch", "explore"
+	Requirement QuestRequirement
+	Reward      QuestReward
+	Completed   bool
+	Active      bool
+}
+
+type QuestRequirement struct {
+	Type         string // "level", "boss_kill", "talk", "item_collect", "location"
+	TargetValue  int    // level requirement, item count, etc.
+	TargetName   string // boss name, NPC name, item name, location name
+	CurrentValue int    // progress tracker
+}
+
+type QuestReward struct {
+	Type  string // "unlock_location", "unlock_feature", "skill", "item"
+	Value string // what gets unlocked/granted
+	XP    int    // bonus XP
+}
+
+type Building struct {
+	Name                string
+	RequiredResourceMap map[string]int
+	StatsMod            StatMod
+}
+
+type Location struct {
+	Name      string
+	Weight    int
+	Type      string
+	LevelMax  int
+	RarityMax int
+	Monsters  []Monster
+}
+
+type Resource struct {
+	Name         string
+	Stock        int
+	RollModifier int
+}
+
+type StatMod struct {
+	AttackMod   int
+	DefenseMod  int
+	HitPointMod int
+}
+
+type StatusEffect struct {
+	Type     string // "poison", "burn", "stun", "regen", "buff_attack", "buff_defense"
+	Duration int    // turns remaining
+	Potency  int    // damage per turn or stat modifier
+}
+
+type DamageType string
+
+const (
+	Physical  DamageType = "physical"
+	Fire      DamageType = "fire"
+	Ice       DamageType = "ice"
+	Lightning DamageType = "lightning"
+	Poison    DamageType = "poison"
+)
+
+type Skill struct {
+	Name        string
+	ManaCost    int
+	StaminaCost int
+	Damage      int
+	DamageType  DamageType
+	Effect      StatusEffect
+	Description string
+}
+
+type Monster struct {
+	Name               string
+	Level              int
+	Experience         int
+	ExpSinceLevel      int
+	Rank               int
+	HitpointsTotal     int
+	HitpointsNatural   int
+	HitpointsRemaining int
+	ManaTotal          int
+	ManaNatural        int
+	ManaRemaining      int
+	StaminaTotal       int
+	StaminaNatural     int
+	StaminaRemaining   int
+	AttackRolls        int
+	DefenseRolls       int
+	StatsMod           StatMod
+	Inventory          []Item
+	EquipmentMap       map[int]Item
+	LearnedSkills      []Skill
+	StatusEffects      []StatusEffect
+	Resistances        map[DamageType]float64
+	MonsterType        string // "slime", "goblin", "orc", etc
+	IsSkillGuardian    bool   // True if this monster guards a skill
+	GuardedSkill       Skill  // The skill this guardian can teach
+	IsBoss             bool   // True if this is a boss monster
+}
+
+type Item struct {
+	Name        string
+	Rarity      int
+	Slot        int
+	StatsMod    StatMod
+	CP          int
+	ItemType    string // "equipment", "consumable", or "skill_scroll"
+	Consumable  ConsumableEffect
+	SkillScroll SkillScrollData
+}
+
+type ConsumableEffect struct {
+	EffectType string // "heal", "buff_attack", "buff_defense"
+	Value      int    // amount to heal or buff value
+	Duration   int    // for buffs, how many turns it lasts
+}
+
+type SkillScrollData struct {
+	Skill          Skill
+	CanBeCrafted   bool   // If true, can be used for crafting instead of learning
+	CraftingValue  int    // Value for crafting purposes
+}
+
+var resourceTypes = []string{"Lumber", "Gold", "Iron", "Sand", "Stone"}
+
+// Beast materials from monster drops
+var beastMaterials = []string{"Beast Skin", "Beast Bone", "Ore Fragment", "Tough Hide", "Sharp Fang", "Monster Claw"}
+
+var monsterNames = []string{"slime", "goblin", "orc", "kobold", "hiftier", "golem", "kitpod"}
+
+// Skill Guardian names - special monsters that drop/teach skills
+var skillGuardianNames = []string{
+	"Fire Elemental",
+	"Ice Wraith",
+	"Storm Titan",
+	"Shadow Assassin",
+	"Stone Colossus",
+	"Plague Bearer",
+	"Battle Master",
+	"Arcane Construct",
+}
+
+// Villager names for rescued NPCs
+var villagerFirstNames = []string{
+	"John", "Sarah", "Michael", "Emma", "James", "Olivia", "William", "Sophia",
+	"Robert", "Isabella", "David", "Charlotte", "Joseph", "Amelia", "Charles", "Mia",
+	"Thomas", "Harper", "Daniel", "Evelyn", "Matthew", "Abigail", "Henry", "Emily",
+	"Andrew", "Elizabeth", "Ryan", "Sofia", "Alexander", "Avery",
+}
+
+var villagerLastNames = []string{
+	"Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
+	"Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas",
+	"Taylor", "Moore", "Jackson", "Martin", "Lee", "Thompson", "White", "Harris",
+}
+
+var guardNames = []string{
+	"Ser Marcus", "Captain Elena", "Knight Roland", "Dame Victoria", "Guard Captain Thorne",
+	"Paladin Cedric", "Sentinel Aria", "Defender Gareth", "Shield-Bearer Lyra", "Warden Drake",
+}
+
+// Available skills for players
+var availableSkills = []Skill{
+	{
+		Name:        "Fireball",
+		ManaCost:    15,
+		StaminaCost: 0,
+		Damage:      18,
+		DamageType:  Fire,
+		Effect:      StatusEffect{Type: "burn", Duration: 3, Potency: 3},
+		Description: "Launch a fireball dealing fire damage and burning the enemy",
+	},
+	{
+		Name:        "Ice Shard",
+		ManaCost:    12,
+		StaminaCost: 0,
+		Damage:      15,
+		DamageType:  Ice,
+		Effect:      StatusEffect{Type: "none", Duration: 0, Potency: 0},
+		Description: "Fire a shard of ice dealing cold damage",
+	},
+	{
+		Name:        "Lightning Bolt",
+		ManaCost:    18,
+		StaminaCost: 0,
+		Damage:      22,
+		DamageType:  Lightning,
+		Effect:      StatusEffect{Type: "stun", Duration: 1, Potency: 1},
+		Description: "Strike with lightning, high damage with chance to stun",
+	},
+	{
+		Name:        "Heal",
+		ManaCost:    10,
+		StaminaCost: 0,
+		Damage:      -20, // negative damage = healing
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "none", Duration: 0, Potency: 0},
+		Description: "Restore 20 HP",
+	},
+	{
+		Name:        "Power Strike",
+		ManaCost:    0,
+		StaminaCost: 20,
+		Damage:      25,
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "none", Duration: 0, Potency: 0},
+		Description: "Powerful physical attack using stamina",
+	},
+	{
+		Name:        "Shield Wall",
+		ManaCost:    0,
+		StaminaCost: 15,
+		Damage:      0,
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "buff_defense", Duration: 3, Potency: 10},
+		Description: "Increase defense by 10 for 3 turns",
+	},
+	{
+		Name:        "Battle Cry",
+		ManaCost:    0,
+		StaminaCost: 15,
+		Damage:      0,
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "buff_attack", Duration: 3, Potency: 5},
+		Description: "Increase attack by 5 for 3 turns",
+	},
+	{
+		Name:        "Poison Blade",
+		ManaCost:    0,
+		StaminaCost: 10,
+		Damage:      10,
+		DamageType:  Poison,
+		Effect:      StatusEffect{Type: "poison", Duration: 4, Potency: 5},
+		Description: "Attack with poison, dealing damage over time",
+	},
+	{
+		Name:        "Regeneration",
+		ManaCost:    12,
+		StaminaCost: 0,
+		Damage:      0,
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "regen", Duration: 5, Potency: 5},
+		Description: "Heal 5 HP per turn for 5 turns",
+	},
+	{
+		Name:        "Tracking",
+		ManaCost:    0,
+		StaminaCost: 0,
+		Damage:      0,
+		DamageType:  Physical,
+		Effect:      StatusEffect{Type: "none", Duration: 0, Potency: 0},
+		Description: "Allows you to see and choose which monster to fight at a location",
+	},
+}
+
+var ADJECTIVES = []string{"autumn", "hidden", "bitter", "misty", "silent", "empty", "dry", "dark", "summer",
+	"icy", "delicate", "quiet", "white", "cool", "spring", "winter", "patient",
+	"twilight", "dawn", "crimson", "wispy", "weathered", "blue", "billowing",
+	"broken", "cold", "damp", "falling", "frosty", "green", "long", "late", "lingering",
+	"bold", "little", "morning", "muddy", "old", "red", "rough", "still", "small",
+	"sparkling", "throbbing", "shy", "wandering", "withered", "wild", "black",
+	"young", "holy", "solitary", "fragrant", "aged", "snowy", "proud", "floral",
+	"restless", "divine", "polished", "ancient", "purple", "lively", "nameless"}
+
+var NOUNS = []string{"waterfall", "river", "breeze", "moon", "rain", "wind", "sea", "morning",
+	"snow", "lake", "sunset", "pine", "shadow", "leaf", "dawn", "glitter", "forest",
+	"hill", "cloud", "meadow", "sun", "glade", "bird", "brook", "butterfly",
+	"bush", "dew", "dust", "field", "fire", "flower", "firefly", "feather", "grass",
+	"haze", "mountain", "night", "pond", "darkness", "snowflake", "silence",
+	"sound", "sky", "shape", "surf", "thunder", "violet", "water", "wildflower",
+	"wave", "water", "resonance", "sun", "wood", "dream", "cherry", "tree", "fog",
+	"frost", "voice", "paper", "frog", "smoke", "star"}
+
+var discoverableLocations = []Location{
+	{Name: "Home", Weight: 0, Type: "Base"},
+	{Name: "Training Hall", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
+	{Name: "Forest", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
+	{Name: "Lake", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
+	{Name: "Hills", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
+	{Name: "Hunters Lodge", Weight: 12, Type: "Ruin", LevelMax: 50, RarityMax: 3},
+	{Name: "Forest Ruins", Weight: 14, Type: "Ruin", LevelMax: 100, RarityMax: 5},
+	{Name: "Lake", Weight: 17, Type: "Mix"},
+	{Name: "Lake Ruins", Weight: 24, Type: "Ruin"},
+	{Name: "Quarry", Weight: 28, Type: "Resource"},
+	{Name: "Stone Keep", Weight: 33, Type: "Base"},
+	{Name: "Training Hub", Weight: 37, Type: "Base"},
+	{Name: "Kegger", Weight: 42, Type: "Trade"},
+	{Name: "Hospital", Weight: 53, Type: "Base"},
+	{Name: "Ancient Dungeon", Weight: 55, Type: "Ruin", LevelMax: 200, RarityMax: 10},
+	{Name: "The Tower", Weight: 60, Type: "Ruin", LevelMax: 2000, RarityMax: 10},
+}
+
+var availableBuildings = []Building{
+	{Name: "Training Grounds", RequiredResourceMap: map[string]int{"Lumber": 30, "Stone": 10}, StatsMod: StatMod{AttackMod: 0, DefenseMod: 0, HitPointMod: 0}},
+	{Name: "Blacksmith", RequiredResourceMap: map[string]int{"Lumber": 10, "Stone": 30}, StatsMod: StatMod{AttackMod: 0, DefenseMod: 0, HitPointMod: 0}},
+}
+
+// Story quests that require human interaction
+var storyQuests = map[string]Quest{
+	"quest_1_training": {
+		ID:          "quest_1_training",
+		Name:        "The First Trial",
+		Description: "The village elder asks you to complete your training by reaching level 3.",
+		Type:        "level",
+		Requirement: QuestRequirement{Type: "level", TargetValue: 3, TargetName: "", CurrentValue: 0},
+		Reward:      QuestReward{Type: "unlock_location", Value: "Forest Ruins", XP: 100},
+		Completed:   false,
+		Active:      true,
+	},
+	"quest_2_explore": {
+		ID:          "quest_2_explore",
+		Name:        "Into the Ruins",
+		Description: "A mysterious force emanates from the Forest Ruins. Explore it to unlock new areas.",
+		Type:        "explore",
+		Requirement: QuestRequirement{Type: "location", TargetValue: 5, TargetName: "Forest Ruins", CurrentValue: 0},
+		Reward:      QuestReward{Type: "unlock_location", Value: "Ancient Dungeon", XP: 250},
+		Completed:   false,
+		Active:      false,
+	},
+	"quest_3_boss": {
+		ID:          "quest_3_boss",
+		Name:        "The Dungeon Guardian",
+		Description: "Defeat the Guardian Boss in the Ancient Dungeon to prove your worth (Human interaction required).",
+		Type:        "boss",
+		Requirement: QuestRequirement{Type: "boss_kill", TargetValue: 1, TargetName: "Guardian", CurrentValue: 0},
+		Reward:      QuestReward{Type: "unlock_feature", Value: "advanced_skills", XP: 500},
+		Completed:   false,
+		Active:      false,
+	},
+	"quest_4_master": {
+		ID:          "quest_4_master",
+		Name:        "The Master's Challenge",
+		Description: "Reach level 10 and defeat the Master in combat to unlock The Tower.",
+		Type:        "boss",
+		Requirement: QuestRequirement{Type: "boss_kill", TargetValue: 1, TargetName: "The Master", CurrentValue: 0},
+		Reward:      QuestReward{Type: "unlock_location", Value: "The Tower", XP: 1000},
+		Completed:   false,
+		Active:      false,
+	},
+	"quest_5_ascension": {
+		ID:          "quest_5_ascension",
+		Name:        "Tower Ascension",
+		Description: "Climb The Tower and defeat the final boss to ascend to a new realm.",
+		Type:        "boss",
+		Requirement: QuestRequirement{Type: "boss_kill", TargetValue: 1, TargetName: "Tower Lord", CurrentValue: 0},
+		Reward:      QuestReward{Type: "unlock_feature", Value: "prestige_mode", XP: 5000},
+		Completed:   false,
+		Active:      false,
+	},
+}
+
+// Auto-play AI decision making
+func makeAIDecision(player *Character, mob *Monster, turnCount int) string {
+	// Decision priority:
+	// 1. Heal if HP < 40%
+	// 2. Use buff skills at start of combat (turns 1-2)
+	// 3. Use offensive skills if resources available
+	// 4. Attack normally
+
+	hpPercent := float64(player.HitpointsRemaining) / float64(player.HitpointsTotal)
+
+	// Check for heal skill if low HP
+	if hpPercent < 0.4 {
+		for _, skill := range player.LearnedSkills {
+			if skill.Name == "Heal" && skill.ManaCost <= player.ManaRemaining {
+				return "skill_heal"
+			}
+			if skill.Name == "Regeneration" && skill.ManaCost <= player.ManaRemaining {
+				return "skill_regeneration"
+			}
+		}
+		// Check for health potions
+		for _, item := range player.Inventory {
+			if item.ItemType == "consumable" {
+				return "item"
+			}
+		}
+	}
+
+	// Use buffs at start of combat
+	if turnCount <= 2 {
+		for _, skill := range player.LearnedSkills {
+			if (skill.Name == "Battle Cry" || skill.Name == "Shield Wall") &&
+			   skill.StaminaCost <= player.StaminaRemaining {
+				return "skill_" + skill.Name
+			}
+		}
+	}
+
+	// Use offensive skills (50% chance if available)
+	if rand.Intn(100) < 50 {
+		for _, skill := range player.LearnedSkills {
+			if skill.Damage > 0 {
+				if skill.ManaCost <= player.ManaRemaining && skill.StaminaCost <= player.StaminaRemaining {
+					return "skill_" + skill.Name
+				}
+			}
+		}
+	}
+
+	// Default to attack
+	return "attack"
+}
+
+// Quest management functions
+func checkQuestProgress(player *Character, gameState *GameState) {
+	// Safety check: ensure AvailableQuests is initialized
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]Quest)
+		for id, quest := range storyQuests {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+
+	// Safety check: ensure player quest arrays are initialized
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{"quest_1_training"}
+	}
+
+	// Check active quests for completion
+	for _, questID := range player.ActiveQuests {
+		quest, exists := gameState.AvailableQuests[questID]
+		if !exists || quest.Completed {
+			continue
+		}
+
+		// Update quest progress based on type
+		switch quest.Requirement.Type {
+		case "level":
+			quest.Requirement.CurrentValue = player.Level
+		}
+
+		// Check if quest is complete
+		if quest.Requirement.CurrentValue >= quest.Requirement.TargetValue {
+			fmt.Printf("\n🎉 QUEST COMPLETE: %s 🎉\n", quest.Name)
+			fmt.Printf("Reward: %s\n", quest.Reward.Value)
+			if quest.Reward.XP > 0 {
+				player.Experience += quest.Reward.XP
+				fmt.Printf("Bonus XP: +%d\n", quest.Reward.XP)
+			}
+			quest.Completed = true
+			player.CompletedQuests = append(player.CompletedQuests, questID)
+
+			// Remove from active quests
+			for i, id := range player.ActiveQuests {
+				if id == questID {
+					player.ActiveQuests = append(player.ActiveQuests[:i], player.ActiveQuests[i+1:]...)
+					break
+				}
+			}
+
+			gameState.AvailableQuests[questID] = quest
+
+			// Activate next quest in chain
+			activateNextQuest(player, gameState, questID)
+		} else {
+			gameState.AvailableQuests[questID] = quest
+		}
+	}
+}
+
+func activateNextQuest(player *Character, gameState *GameState, completedQuestID string) {
+	// Safety check: ensure maps are initialized
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]Quest)
+		for id, quest := range storyQuests {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{}
+	}
+
+	nextQuestMap := map[string]string{
+		"quest_1_training": "quest_2_explore",
+		"quest_2_explore":  "quest_3_boss",
+		"quest_3_boss":     "quest_4_master",
+		"quest_4_master":   "quest_5_ascension",
+	}
+
+	nextQuestID, exists := nextQuestMap[completedQuestID]
+	if exists {
+		quest := gameState.AvailableQuests[nextQuestID]
+		quest.Active = true
+		player.ActiveQuests = append(player.ActiveQuests, nextQuestID)
+		gameState.AvailableQuests[nextQuestID] = quest
+		fmt.Printf("\n📜 NEW QUEST AVAILABLE: %s\n", quest.Name)
+		fmt.Printf("%s\n\n", quest.Description)
+	}
+}
+
+func showQuestLog(player *Character, gameState *GameState) {
+	fmt.Println("\n============================================================")
+	fmt.Println("📜 QUEST LOG")
+	fmt.Println("============================================================")
+
+	// Safety checks
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]Quest)
+		for id, quest := range storyQuests {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{}
+	}
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+
+	// Show active quests
+	if len(player.ActiveQuests) > 0 {
+		fmt.Println("\n🔥 ACTIVE QUESTS:")
+		for _, questID := range player.ActiveQuests {
+			quest := gameState.AvailableQuests[questID]
+			fmt.Printf("\n[%s]\n", quest.Name)
+			fmt.Printf("  %s\n", quest.Description)
+			if quest.Requirement.Type == "level" {
+				fmt.Printf("  Progress: Level %d/%d\n", quest.Requirement.CurrentValue, quest.Requirement.TargetValue)
+			} else if quest.Requirement.Type == "boss_kill" {
+				fmt.Printf("  Objective: Defeat %s (%d/%d)\n", quest.Requirement.TargetName, quest.Requirement.CurrentValue, quest.Requirement.TargetValue)
+			} else if quest.Requirement.Type == "location" {
+				fmt.Printf("  Objective: Explore %s (%d/%d fights)\n", quest.Requirement.TargetName, quest.Requirement.CurrentValue, quest.Requirement.TargetValue)
+			}
+			fmt.Printf("  Reward: %s", quest.Reward.Value)
+			if quest.Reward.XP > 0 {
+				fmt.Printf(" + %d XP", quest.Reward.XP)
+			}
+			fmt.Println()
+			if quest.Type == "boss" {
+				fmt.Println("  ⚠️  REQUIRES HUMAN INTERACTION - Cannot auto-play")
+			}
+		}
+	} else {
+		fmt.Println("\nNo active quests.")
+	}
+
+	// Show completed quests
+	if len(player.CompletedQuests) > 0 {
+		fmt.Println("\n✅ COMPLETED QUESTS:")
+		for _, questID := range player.CompletedQuests {
+			quest := gameState.AvailableQuests[questID]
+			fmt.Printf("  • %s\n", quest.Name)
+		}
+	}
+
+	fmt.Println("\n============================================================")
+}
+
+func autoPlayMode(gameState *GameState, player *Character, speed string) {
+	// Speed delays in milliseconds
+	delays := map[string]int{
+		"slow":   2000,
+		"normal": 1000,
+		"fast":   500,
+		"turbo":  100,
+	}
+	delay := delays[speed]
+	if delay == 0 {
+		delay = 1000 // default to normal
+	}
+
+	fmt.Printf("\n🎮 AUTO-PLAY MODE ACTIVATED 🎮\n")
+	fmt.Printf("Speed: %s (%dms delay)\n", speed, delay)
+	fmt.Printf("Character: %s (Level %d)\n", player.Name, player.Level)
+	fmt.Printf("Press ENTER at any time to stop\n\n")
+
+	fightCount := 0
+	totalXP := 0
+	wins := 0
+	deaths := 0
+	startTime := time.Now()
+
+	// Channel for interrupt signal
+	stopChan := make(chan bool)
+	go func() {
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
+		stopChan <- true
+	}()
+
+	// Find a huntable location
+	var huntLocation *Location
+	for _, locName := range player.KnownLocations {
+		loc := gameState.GameLocations[locName]
+		if loc.Type != "Base" {
+			huntLocation = &loc
+			break
+		}
+	}
+
+	if huntLocation == nil {
+		fmt.Println("No huntable locations available!")
+		return
+	}
+
+	fmt.Printf("Hunting at: %s\n", huntLocation.Name)
+	fmt.Println("=====================================")
+
+gameLoop:
+	for {
+		// Check for stop signal
+		select {
+		case <-stopChan:
+			fmt.Printf("\n\n⏸️  AUTO-PLAY STOPPED BY USER ⏸️\n\n")
+			break gameLoop
+		default:
+			// Continue with fight
+		}
+
+		fightCount++
+
+		// Resurrect if dead
+		if player.HitpointsRemaining <= 0 {
+			player.HitpointsRemaining = player.HitpointsTotal
+			player.Resurrections++
+			deaths++
+			fmt.Printf("\n💀 RESURRECTION #%d\n\n", player.Resurrections)
+		}
+
+		// Pick random monster
+		mobLoc := rand.Intn(len(huntLocation.Monsters))
+		mob := huntLocation.Monsters[mobLoc]
+
+		// Auto-combat
+		startXP := player.Experience
+		autoFightToTheDeath(player, gameState, &mob, huntLocation, mobLoc)
+
+		xpGained := player.Experience - startXP
+		if xpGained > 0 {
+			wins++
+			totalXP += xpGained
+		}
+
+		// Level up check
+		levelUp(player)
+		levelUpMob(&huntLocation.Monsters[mobLoc])
+		checkQuestProgress(player, gameState)
+
+		// Print stats every 10 fights
+		if fightCount%10 == 0 {
+			fmt.Printf("\n📊 AUTO-PLAY STATISTICS 📊\n")
+			fmt.Printf("Fights: %d | Wins: %d | Deaths: %d\n", fightCount, wins, deaths)
+			fmt.Printf("Level: %d | XP: %d | Total XP Gained: %d\n", player.Level, player.Experience, totalXP)
+			fmt.Printf("HP: %d/%d | MP: %d/%d | SP: %d/%d\n",
+				player.HitpointsRemaining, player.HitpointsTotal,
+				player.ManaRemaining, player.ManaTotal,
+				player.StaminaRemaining, player.StaminaTotal)
+			fmt.Printf("Skills: %d | Inventory: %d items\n", len(player.LearnedSkills), len(player.Inventory))
+			fmt.Println("=====================================")
+			fmt.Println("(Press ENTER to stop)")
+		}
+
+		// Save every 50 fights
+		if fightCount%50 == 0 {
+			gameState.CharactersMap[player.Name] = *player
+			writeGameStateToFile(*gameState, "gamestate.json")
+			fmt.Printf("💾 Game saved (Fight #%d)\n\n", fightCount)
+		}
+
+		// Delay based on speed
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+	}
+
+	// Session ended - show summary
+	duration := time.Since(startTime)
+	showAutoPlaySummary(fightCount, wins, deaths, totalXP, duration, player)
+
+	// Show post-session menu
+	showPostAutoPlayMenu(gameState, player)
+}
+
+// Show auto-play session summary
+func showAutoPlaySummary(fights int, wins int, deaths int, xp int, duration time.Duration, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("📊 AUTO-PLAY SESSION COMPLETE 📊")
+	fmt.Println("============================================================")
+	fmt.Printf("Duration: %s\n", duration.Round(time.Second))
+	fmt.Printf("Total Fights: %d\n", fights)
+	fmt.Printf("Victories: %d (%.1f%%)\n", wins, float64(wins)/float64(fights)*100)
+	fmt.Printf("Deaths: %d\n", deaths)
+	fmt.Printf("XP Gained: %d\n", xp)
+	fmt.Printf("\nFinal Character State:\n")
+	fmt.Printf("  Level: %d (XP: %d)\n", player.Level, player.Experience)
+	fmt.Printf("  HP: %d/%d\n", player.HitpointsRemaining, player.HitpointsTotal)
+	fmt.Printf("  MP: %d/%d\n", player.ManaRemaining, player.ManaTotal)
+	fmt.Printf("  SP: %d/%d\n", player.StaminaRemaining, player.StaminaTotal)
+	fmt.Printf("  Skills Known: %d\n", len(player.LearnedSkills))
+	fmt.Printf("  Inventory Items: %d\n", len(player.Inventory))
+	fmt.Println("============================================================")
+}
+
+// Post auto-play menu
+func showPostAutoPlayMenu(gameState *GameState, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n--- POST AUTO-PLAY MENU ---")
+		fmt.Println("1 = View Inventory")
+		fmt.Println("2 = View Skills")
+		fmt.Println("3 = View Equipment")
+		fmt.Println("4 = View Quest Log")
+		fmt.Println("5 = View Full Character Stats")
+		fmt.Println("6 = Resume Auto-Play")
+		fmt.Println("0 = Return to Main Menu")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			showInventory(player)
+		case "2":
+			showSkills(player)
+		case "3":
+			showEquipment(player)
+		case "4":
+			showQuestLog(player, gameState)
+		case "5":
+			printCharacter(*player)
+		case "6":
+			// Resume auto-play
+			fmt.Println("\nSelect speed:")
+			fmt.Println("1 = Slow (2s per fight)")
+			fmt.Println("2 = Normal (1s per fight)")
+			fmt.Println("3 = Fast (0.5s per fight)")
+			fmt.Println("4 = Turbo (0.1s per fight)")
+			fmt.Print("Choice: ")
+			scanner.Scan()
+			speedChoice := scanner.Text()
+
+			speedMap := map[string]string{
+				"1": "slow",
+				"2": "normal",
+				"3": "fast",
+				"4": "turbo",
+			}
+
+			speed := speedMap[speedChoice]
+			if speed == "" {
+				speed = "normal"
+			}
+
+			// Save before resuming
+			gameState.CharactersMap[player.Name] = *player
+			writeGameStateToFile(*gameState, "gamestate.json")
+
+			autoPlayMode(gameState, player, speed)
+			return
+		case "0":
+			// Save and return to main menu
+			gameState.CharactersMap[player.Name] = *player
+			writeGameStateToFile(*gameState, "gamestate.json")
+			fmt.Println("\n💾 Game saved")
+			return
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+// Display inventory details
+func showInventory(player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Printf("📦 INVENTORY - %s\n", player.Name)
+	fmt.Println("============================================================")
+
+	if len(player.Inventory) == 0 {
+		fmt.Println("Your inventory is empty.")
+	} else {
+		// Group items by type
+		equipment := []Item{}
+		consumables := []Item{}
+		skillScrolls := []Item{}
+
+		for _, item := range player.Inventory {
+			if item.ItemType == "consumable" {
+				consumables = append(consumables, item)
+			} else if item.ItemType == "skill_scroll" {
+				skillScrolls = append(skillScrolls, item)
+			} else {
+				equipment = append(equipment, item)
+			}
+		}
+
+		// Show consumables
+		if len(consumables) > 0 {
+			fmt.Println("\n💊 CONSUMABLES:")
+			potionCount := make(map[string]int)
+			for _, item := range consumables {
+				potionCount[item.Name]++
+			}
+			for name, count := range potionCount {
+				fmt.Printf("  • %s x%d\n", name, count)
+			}
+		}
+
+		// Show skill scrolls
+		if len(skillScrolls) > 0 {
+			fmt.Println("\n📜 SKILL SCROLLS:")
+			for i, scroll := range skillScrolls {
+				fmt.Printf("  %d. %s\n", i+1, scroll.Name)
+				fmt.Printf("     Skill: %s\n", scroll.SkillScroll.Skill.Name)
+				fmt.Printf("     Crafting Value: %d\n", scroll.SkillScroll.CraftingValue)
+				fmt.Printf("     Use: Learn skill or craft into equipment\n")
+			}
+		}
+
+		// Show equipment
+		if len(equipment) > 0 {
+			fmt.Println("\n⚔️  EQUIPMENT (Unequipped):")
+			for i, item := range equipment {
+				fmt.Printf("  %d. %s (Rarity %d, CP: %d)\n", i+1, item.Name, item.Rarity, item.CP)
+				if item.StatsMod.AttackMod > 0 {
+					fmt.Printf("     +%d Attack\n", item.StatsMod.AttackMod)
+				}
+				if item.StatsMod.DefenseMod > 0 {
+					fmt.Printf("     +%d Defense\n", item.StatsMod.DefenseMod)
+				}
+				if item.StatsMod.HitPointMod > 0 {
+					fmt.Printf("     +%d HP\n", item.StatsMod.HitPointMod)
+				}
+			}
+		}
+	}
+
+	fmt.Printf("\nTotal Items: %d\n", len(player.Inventory))
+	fmt.Println("============================================================")
+}
+
+// Display learned skills
+func showSkills(player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Printf("✨ LEARNED SKILLS - %s\n", player.Name)
+	fmt.Println("============================================================")
+	fmt.Printf("Level: %d | MP: %d/%d | SP: %d/%d\n\n",
+		player.Level, player.ManaRemaining, player.ManaTotal,
+		player.StaminaRemaining, player.StaminaTotal)
+
+	if len(player.LearnedSkills) == 0 {
+		fmt.Println("No skills learned yet.")
+	} else {
+		for i, skill := range player.LearnedSkills {
+			fmt.Printf("%d. %s\n", i+1, skill.Name)
+
+			// Cost info
+			costs := []string{}
+			if skill.ManaCost > 0 {
+				costs = append(costs, fmt.Sprintf("%d MP", skill.ManaCost))
+			}
+			if skill.StaminaCost > 0 {
+				costs = append(costs, fmt.Sprintf("%d SP", skill.StaminaCost))
+			}
+			if len(costs) > 0 {
+				fmt.Printf("   Cost: %s\n", costs[0])
+				if len(costs) > 1 {
+					fmt.Printf("        %s\n", costs[1])
+				}
+			}
+
+			// Effect info
+			if skill.Damage > 0 {
+				fmt.Printf("   Damage: %d %s\n", skill.Damage, skill.DamageType)
+			} else if skill.Damage < 0 {
+				fmt.Printf("   Healing: %d HP\n", -skill.Damage)
+			}
+
+			if skill.Effect.Type != "none" && skill.Effect.Type != "" {
+				fmt.Printf("   Effect: %s (%d turns, potency %d)\n",
+					skill.Effect.Type, skill.Effect.Duration, skill.Effect.Potency)
+			}
+
+			fmt.Printf("   %s\n\n", skill.Description)
+		}
+	}
+
+	fmt.Printf("Total Skills: %d\n", len(player.LearnedSkills))
+	fmt.Println("============================================================")
+}
+
+// Display equipped items
+func showEquipment(player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Printf("🛡️  EQUIPPED ITEMS - %s\n", player.Name)
+	fmt.Println("============================================================")
+
+	if len(player.EquipmentMap) == 0 {
+		fmt.Println("No equipment equipped.")
+	} else {
+		slotNames := map[int]string{
+			0: "Head",
+			1: "Chest",
+			2: "Legs",
+			3: "Feet",
+			4: "Hands",
+			5: "Main Hand",
+			6: "Off Hand",
+			7: "Accessory",
+		}
+
+		for slot, item := range player.EquipmentMap {
+			slotName := slotNames[slot]
+			if slotName == "" {
+				slotName = fmt.Sprintf("Slot %d", slot)
+			}
+
+			fmt.Printf("\n[%s]\n", slotName)
+			fmt.Printf("  %s (Rarity %d, CP: %d)\n", item.Name, item.Rarity, item.CP)
+
+			if item.StatsMod.AttackMod > 0 {
+				fmt.Printf("  +%d Attack\n", item.StatsMod.AttackMod)
+			}
+			if item.StatsMod.DefenseMod > 0 {
+				fmt.Printf("  +%d Defense\n", item.StatsMod.DefenseMod)
+			}
+			if item.StatsMod.HitPointMod > 0 {
+				fmt.Printf("  +%d HP\n", item.StatsMod.HitPointMod)
+			}
+		}
+
+		fmt.Printf("\n\nTotal Stats from Equipment:\n")
+		fmt.Printf("  Attack:  +%d\n", player.StatsMod.AttackMod)
+		fmt.Printf("  Defense: +%d\n", player.StatsMod.DefenseMod)
+		fmt.Printf("  HP:      +%d\n", player.StatsMod.HitPointMod)
+	}
+
+	fmt.Printf("\nEquipped Items: %d\n", len(player.EquipmentMap))
+	fmt.Println("============================================================")
+}
+
+// Auto-combat version of fightToTheDeath
+func autoFightToTheDeath(player *Character, game *GameState, mob *Monster, location *Location, mobLoc int) {
+	// Restore resources at start
+	player.ManaRemaining = player.ManaTotal
+	player.StaminaRemaining = player.StaminaTotal
+	mob.ManaRemaining = mob.ManaTotal
+	mob.StaminaRemaining = mob.StaminaTotal
+
+	turnCount := 0
+	fmt.Printf("⚔️  Fight #%d: %s (Lv%d) vs %s (Lv%d)\n",
+		rand.Intn(10000), player.Name, player.Level, mob.Name, mob.Level)
+
+	for player.HitpointsRemaining > 0 && mob.HitpointsRemaining > 0 {
+		turnCount++
+
+		// Process status effects
+		processStatusEffects(player)
+		processStatusEffectsMob(mob)
+
+		// Declare decision variable before potential goto
+		var decision string
+
+		// Check if player is stunned
+		if isStunned(player) {
+			fmt.Printf("  [T%d] %s is STUNNED!\n", turnCount, player.Name)
+			goto MonsterTurn
+		}
+
+		// AI makes decision
+		decision = makeAIDecision(player, mob, turnCount)
+
+		// Execute decision
+		switch decision {
+		case "attack":
+			playerAttack := multiRoll(player.AttackRolls) + player.StatsMod.AttackMod
+			if rand.Intn(100) < 15 {
+				playerAttack = playerAttack * 2
+				fmt.Printf("  [T%d] %s CRITICAL HIT!\n", turnCount, player.Name)
+			}
+			mobDef := multiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
+			if playerAttack > mobDef {
+				diff := applyDamage(playerAttack-mobDef, Physical, mob)
+				mob.HitpointsRemaining -= diff
+				fmt.Printf("  [T%d] %s attacks for %d dmg (Mob HP: %d/%d)\n",
+					turnCount, player.Name, diff, mob.HitpointsRemaining, mob.HitpointsTotal)
+			}
+
+		case "item":
+			// Use first available potion
+			for idx, item := range player.Inventory {
+				if item.ItemType == "consumable" {
+					useConsumableItem(item, player)
+					removeItemFromInventory(&player.Inventory, idx)
+					fmt.Printf("  [T%d] %s used %s\n", turnCount, player.Name, item.Name)
+					break
+				}
+			}
+
+		default:
+			// Skill usage (decision starts with "skill_")
+			if len(decision) > 6 && decision[:6] == "skill_" {
+				skillName := decision[6:]
+				for _, skill := range player.LearnedSkills {
+					if skill.Name == skillName || skill.Name == "Heal" && skillName == "heal" ||
+					   skill.Name == "Regeneration" && skillName == "regeneration" ||
+					   skill.Name == "Battle Cry" && skillName == "Battle Cry" ||
+					   skill.Name == "Shield Wall" && skillName == "Shield Wall" {
+
+						if skill.ManaCost <= player.ManaRemaining && skill.StaminaCost <= player.StaminaRemaining {
+							player.ManaRemaining -= skill.ManaCost
+							player.StaminaRemaining -= skill.StaminaCost
+
+							if skill.Damage < 0 {
+								// Healing
+								player.HitpointsRemaining += -skill.Damage
+								if player.HitpointsRemaining > player.HitpointsTotal {
+									player.HitpointsRemaining = player.HitpointsTotal
+								}
+								fmt.Printf("  [T%d] %s used %s (+%d HP)\n", turnCount, player.Name, skill.Name, -skill.Damage)
+							} else if skill.Damage > 0 {
+								// Damage skill
+								finalDamage := applyDamage(skill.Damage, skill.DamageType, mob)
+								mob.HitpointsRemaining -= finalDamage
+								fmt.Printf("  [T%d] %s used %s (%d %s dmg)\n",
+									turnCount, player.Name, skill.Name, finalDamage, skill.DamageType)
+							} else {
+								// Buff
+								fmt.Printf("  [T%d] %s used %s (buff)\n", turnCount, player.Name, skill.Name)
+							}
+
+							// Apply effects
+							if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+								if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
+									player.StatusEffects = append(player.StatusEffects, skill.Effect)
+									// Apply buff to StatsMod immediately
+									if skill.Effect.Type == "buff_attack" {
+										player.StatsMod.AttackMod += skill.Effect.Potency
+									} else if skill.Effect.Type == "buff_defense" {
+										player.StatsMod.DefenseMod += skill.Effect.Potency
+									}
+								} else {
+									mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								}
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+
+	MonsterTurn:
+		// Monster's turn
+		if mob.HitpointsRemaining > 0 {
+			if isStunnedMob(mob) {
+				// Monster stunned, skip turn
+			} else {
+				// Simple monster attack
+				mobAttack := multiRoll(mob.AttackRolls) + mob.StatsMod.AttackMod
+				if rand.Intn(100) < 10 {
+					mobAttack = mobAttack * 2
+				}
+				playerDef := multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+				if mobAttack > playerDef {
+					diff := applyDamage(mobAttack-playerDef, Physical, player)
+					player.HitpointsRemaining -= diff
+				}
+			}
+		}
+	}
+
+	// Combat resolution
+	if player.HitpointsRemaining > 0 {
+		player.Experience += mob.Level * 10
+		fmt.Printf("  ✅ VICTORY! (+%d XP)\n", mob.Level*10)
+
+		// Loot
+		for _, item := range mob.EquipmentMap {
+			equipBestItem(item, &player.EquipmentMap, &player.Inventory)
+		}
+
+		// Drop beast materials based on monster type
+		dropBeastMaterial(mob.MonsterType, player)
+
+		// Chance for potion
+		if rand.Intn(100) < 30 {
+			potion := createHealthPotion("small")
+			if rand.Intn(100) < 30 {
+				potion = createHealthPotion("medium")
+			}
+			player.Inventory = append(player.Inventory, potion)
+		}
+
+		// 15% chance to rescue a villager after victory
+		if rand.Intn(100) < 15 {
+			// Check if player has a village
+			if game.Villages == nil {
+				game.Villages = make(map[string]Village)
+			}
+
+			village, exists := game.Villages[player.VillageName]
+			if !exists {
+				// Create village if it doesn't exist
+				village = generateVillage(player.Name)
+				player.VillageName = player.Name + "'s Village"
+			}
+
+			// Rescue the villager
+			rescueVillager(&village)
+
+			// Grant village XP
+			village.Experience += 25
+			fmt.Println("  +25 Village XP")
+
+			// Save village back to game state
+			game.Villages[player.VillageName] = village
+		}
+
+		player.StatsMod = calculateItemMods(player.EquipmentMap)
+		location.Monsters[mobLoc] = generateBestMonster(game, location.LevelMax, location.RarityMax)
+	} else {
+		fmt.Printf("  ❌ DEFEAT!\n")
+		for _, item := range player.EquipmentMap {
+			equipBestItem(item, &mob.EquipmentMap, &mob.Inventory)
+		}
+		location.Monsters[mobLoc].StatsMod = calculateItemMods(mob.EquipmentMap)
+		location.Monsters[mobLoc].Experience += player.Level * 100
+	}
+
+	// Process guard recovery after combat (for all guards in village, not just combat participants)
+	if game.Villages != nil {
+		if village, exists := game.Villages[player.VillageName]; exists {
+			processGuardRecovery(&village)
+			// Save updated village with recovery status
+			game.Villages[player.VillageName] = village
+		}
+	}
+
+	fmt.Println()
+}
+
+func main() {
+	gameState := GameState{CharactersMap: map[string]Character{}}
+	if _, err := os.Stat("gamestate.json"); err == nil {
+		gameStateLoad, err := loadGameStateFromFile("gamestate.json")
+		if err != nil {
+			log.Fatal(err)
+		} else {
+			gameState = gameStateLoad
+			// Ensure maps are initialized for old save files
+			if gameState.CharactersMap == nil {
+				gameState.CharactersMap = make(map[string]Character)
+			}
+			if gameState.GameLocations == nil {
+				gameState.GameLocations = make(map[string]Location)
+			}
+		}
+	} else {
+		fmt.Printf("File does not exist\n")
+		generateGameLocation(&gameState)
+		player := generateCharacter("Temp", 1, 1)
+		player.EquipmentMap = map[int]Item{}
+		player.Inventory = []Item{
+			createHealthPotion("small"),
+			createHealthPotion("small"),
+			createHealthPotion("small"),
+		}
+		player.ResourceStorageMap = map[string]Resource{}
+		generateLocationsForNewCharacter(&player)
+		gameState.CharactersMap[player.Name] = player
+	}
+
+	// Initialize quest system if not already loaded
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]Quest)
+		for id, quest := range storyQuests {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+
+	// Character selection
+	var player Character
+	if len(gameState.CharactersMap) == 0 {
+		// No characters exist, create a default one
+		fmt.Println("No characters found. Creating default 'Temp' character...")
+		generateGameLocation(&gameState)
+		player = generateCharacter("Temp", 1, 1)
+		player.EquipmentMap = map[int]Item{}
+		player.Inventory = []Item{
+			createHealthPotion("small"),
+			createHealthPotion("small"),
+			createHealthPotion("small"),
+		}
+		player.ResourceStorageMap = map[string]Resource{}
+		generateLocationsForNewCharacter(&player)
+		gameState.CharactersMap[player.Name] = player
+	} else if len(gameState.CharactersMap) == 1 {
+		// Only one character, auto-select
+		for _, c := range gameState.CharactersMap {
+			player = c
+		}
+		fmt.Printf("Playing as %s (Level %d)\n", player.Name, player.Level)
+	} else {
+		// Multiple characters, let user choose
+		fmt.Println("Select your character:")
+		charNames := []string{}
+		for name, c := range gameState.CharactersMap {
+			charNames = append(charNames, name)
+			fmt.Printf("  %s (Level %d)\n", name, c.Level)
+		}
+		fmt.Print("Enter character name: ")
+		selectScanner := bufio.NewScanner(os.Stdin)
+		selectScanner.Scan()
+		selectedName := selectScanner.Text()
+		selectedChar, exists := gameState.CharactersMap[selectedName]
+		if exists {
+			player = selectedChar
+			fmt.Printf("Playing as %s (Level %d)\n", player.Name, player.Level)
+		} else {
+			// Fallback to first character
+			for _, c := range gameState.CharactersMap {
+				player = c
+				break
+			}
+			fmt.Printf("Character not found. Playing as %s (Level %d)\n", player.Name, player.Level)
+		}
+	}
+
+	// Initialize quest arrays for old save files
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{"quest_1_training"}
+	}
+
+	// Update the map with initialized player
+	gameState.CharactersMap[player.Name] = player
+	scanner := bufio.NewScanner(os.Stdin)
+	rand.Seed(time.Now().UnixNano())
+
+	for {
+		fmt.Print("\nOptions:\n0 = Character Create\n1 = Harvest\n2 = Search\n3 = Hunt\n4 = Print Discovered Locations\n5 = Player Stats\n6 = Load Save\n8 = AUTO-PLAY MODE (Watch AI Play)\n9 = Quest Log\n10 = Village Management\n")
+		fmt.Print("Enter input:\n")
+		scanner.Scan()
+		input := scanner.Text()
+
+		// Exit the loop if the user enters "exit"
+		if input == "exit" {
+			err := writeGameStateToFile(gameState, "gamestate.json")
+			if err != nil {
+				log.Fatal(err)
+			}
+			break
+		}
+
+		switch input {
+		case "-1":
+			{
+				//Default Initialize
+				player := generateCharacter("Avery", 1, 1)
+				player.EquipmentMap = map[int]Item{}
+				player.Inventory = []Item{
+					createHealthPotion("small"),
+					createHealthPotion("small"),
+					createHealthPotion("small"),
+				}
+				player.ResourceStorageMap = map[string]Resource{}
+				player.BuiltBuildings = []Building{}
+				generateLocationsForNewCharacter(&player)
+				gameState.CharactersMap["Avery"] = player
+			}
+		case "0":
+			{
+				//Character Creation
+				fmt.Print("Create new Character:\nEnter Name: \n")
+				scanner.Scan()
+				input = scanner.Text()
+				_, exists := gameState.CharactersMap[input]
+				if !exists {
+					player := generateCharacter(input, 1, 1)
+					player.EquipmentMap = map[int]Item{}
+					player.Inventory = []Item{
+					createHealthPotion("small"),
+					createHealthPotion("small"),
+					createHealthPotion("small"),
+				}
+					player.ResourceStorageMap = map[string]Resource{}
+					player.BuiltBuildings = []Building{}
+					generateLocationsForNewCharacter(&player)
+					gameState.CharactersMap[input] = player
+					fmt.Print("Character Created \n")
+					printCharacter(player)
+					err := writeGameStateToFile(gameState, "gamestate.json")
+					if err != nil {
+						log.Fatal(err)
+					}
+				} else {
+					fmt.Println("Character with this Name already Exists")
+				}
+			}
+		case "1":
+			{
+				fmt.Print("Enter type to Harvest: \n")
+				for i := 0; i < len(resourceTypes); i++ {
+					fmt.Println(resourceTypes[i])
+				}
+				scanner.Scan()
+				input = scanner.Text()
+				harvestResource(input, &player.ResourceStorageMap)
+				printResources(player.ResourceStorageMap)
+			}
+		case "2":
+			{
+				foundLocation := searchLocation(player.KnownLocations, discoverableLocations)
+				if len(foundLocation) > 0 {
+					fmt.Printf("Adding Found Location: %s\n", foundLocation)
+					player.KnownLocations = append(player.KnownLocations, foundLocation)
+					err := writeGameStateToFile(gameState, "gamestate.json")
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+		case "3":
+			{
+				fmt.Print("What Location?\n")
+				fmt.Println("Discovered locations:")
+				for i := 0; i < len(player.KnownLocations); i++ {
+					location := gameState.GameLocations[player.KnownLocations[i]]
+					if location.Type != "Base" {
+						fmt.Printf("[%s] %s : %s\n", player.KnownLocations[i], location.Name, location.Type)
+					}
+				}
+				scanner.Scan()
+				input = scanner.Text()
+				_, ok := gameState.GameLocations[input]
+				if ok {
+					discoverdLocation := gameState.GameLocations[input]
+					found := false
+					for i := 0; i < len(player.KnownLocations); i++ {
+						if discoverdLocation.Name == player.KnownLocations[i] {
+							found = true
+							break
+						}
+					}
+					if found {
+						if discoverdLocation.Type != "Base" {
+							fmt.Print("How Many Hunts?  ")
+							scanner.Scan()
+							input = scanner.Text()
+							huntCount, err := strconv.Atoi(input)
+							if err != nil {
+								fmt.Println(err)
+							}
+
+							goHunt(&gameState, &discoverdLocation, huntCount, &player)
+						} else {
+							fmt.Println("Cannot Hunt at a Base.")
+						}
+					} else {
+						fmt.Println("Player has not discovered this location")
+					}
+				}
+			}
+		case "4":
+			{
+				// Print all the discovered locations
+				fmt.Println("Discovered locations:")
+				for _, location := range player.KnownLocations {
+					fmt.Println(location)
+					printMonstersAtLocation(gameState.GameLocations[location])
+				}
+			}
+		case "5":
+			{
+				//Print Character and Save.
+				printCharacter(player)
+				gameState.CharactersMap[player.Name] = player
+				err := writeGameStateToFile(gameState, "gamestate.json")
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+		case "6":
+			{
+				//Print Current Character and Load
+				printCharacter(player)
+				gameStateLoad, err := loadGameStateFromFile("gamestate.json")
+				if err != nil {
+					log.Fatal(err)
+				} else {
+					gameState = gameStateLoad
+				}
+				fmt.Print("Select Character: \n")
+				scanner.Scan()
+				input = scanner.Text()
+				loadedPlayer, exists := gameState.CharactersMap[input]
+				if exists {
+					player = loadedPlayer
+					generateMissingResourceType(&player)
+					printCharacter(player)
+				} else {
+					fmt.Println("Player not found")
+				}
+			}
+		case "7":
+			{
+				fmt.Print("What do you want to build?\n")
+				for i := 0; i < len(availableBuildings); i++ {
+					fmt.Println(availableBuildings[i].Name)
+				}
+				scanner.Scan()
+				input = scanner.Text()
+				build := true
+				desiredBuilding := availableBuildings[0]
+				for i := 0; i < len(availableBuildings); i++ {
+					if availableBuildings[i].Name == input {
+						desiredBuilding = availableBuildings[i]
+						for resourceName, resourceValue := range desiredBuilding.RequiredResourceMap {
+							if player.ResourceStorageMap[resourceName].Stock < resourceValue {
+								build = false
+							}
+						}
+					}
+				}
+				if build {
+					for resourceName, resourceValue := range desiredBuilding.RequiredResourceMap {
+						if player.ResourceStorageMap[resourceName].Stock >= resourceValue {
+							resource := player.ResourceStorageMap[resourceName]
+							resource.Stock = resource.Stock - resourceValue
+							player.ResourceStorageMap[resourceName] = resource
+						}
+					}
+					player.BuiltBuildings = append(player.BuiltBuildings, desiredBuilding)
+					fmt.Printf("Built Building %s", desiredBuilding.Name)
+				}
+
+			}
+
+		case "8":
+			{
+				// Auto-play mode
+				fmt.Println("\n🎮 AUTO-PLAY MODE 🎮")
+				fmt.Println("Watch the AI play the game automatically!")
+				fmt.Println("\nSelect speed:")
+				fmt.Println("1 = Slow (2s per fight)")
+				fmt.Println("2 = Normal (1s per fight)")
+				fmt.Println("3 = Fast (0.5s per fight)")
+				fmt.Println("4 = Turbo (0.1s per fight)")
+				fmt.Print("Choice: ")
+				scanner.Scan()
+				speedChoice := scanner.Text()
+
+				speedMap := map[string]string{
+					"1": "slow",
+					"2": "normal",
+					"3": "fast",
+					"4": "turbo",
+				}
+
+				speed := speedMap[speedChoice]
+				if speed == "" {
+					speed = "normal"
+				}
+
+				// Save before starting
+				gameState.CharactersMap[player.Name] = player
+				err := writeGameStateToFile(gameState, "gamestate.json")
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				autoPlayMode(&gameState, &player, speed)
+			}
+
+		case "9":
+			{
+				// Quest Log
+				showQuestLog(&player, &gameState)
+			}
+
+		case "10":
+			{
+				// Village Management
+				// Initialize village if needed
+				if gameState.Villages == nil {
+					gameState.Villages = make(map[string]Village)
+				}
+				village, exists := gameState.Villages[player.VillageName]
+				if !exists {
+					// Create new village
+					village = generateVillage(player.Name)
+					gameState.Villages[player.VillageName] = village
+				}
+				showVillageMenu(&gameState, &player, &village)
+				// Update village in gameState
+				gameState.Villages[player.VillageName] = village
+			}
+
+		}
+	}
+
+	fmt.Println("Exiting the application.")
+}
+
+/*
+////////////////////////////////////////////////////////
+//GameState
+////////////////////////////////////////////////////////
+*/
+
+func writeGameStateToFile(gameState GameState, filename string) error {
+	// Convert the GameState object to JSON
+	jsonData, err := json.MarshalIndent(gameState, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	// Write the JSON data to the file
+	err = ioutil.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("GameState written to", filename)
+	return nil
+}
+
+func loadGameStateFromFile(filename string) (GameState, error) {
+	// Read the JSON data from the file
+	jsonData, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return GameState{}, err
+	}
+
+	// Create a GameState object to hold the loaded data
+	var gameState GameState
+
+	// Unmarshal the JSON data into the GameState object
+	err = json.Unmarshal(jsonData, &gameState)
+	if err != nil {
+		return GameState{}, err
+	}
+
+	return gameState, nil
+}
+
+/*
+////////////////////////////////////////////////////////
+//Location Code (Needs rewrite)
+////////////////////////////////////////////////////////
+*/
+
+// Calculate the total weight of all undiscovered locations
+func calculateTotalWeight(locations []Location) int {
+	total := 0
+	for _, location := range locations {
+		total += location.Weight
+	}
+	return total
+}
+
+func searchLocation(discoveredLocations []string, undiscoveredLocations []Location) string {
+	// Filter out already-discovered and zero-weight locations
+	candidates := []Location{}
+	for _, location := range undiscoveredLocations {
+		if location.Weight <= 0 {
+			continue
+		}
+		alreadyFound := false
+		for _, discovered := range discoveredLocations {
+			if discovered == location.Name {
+				alreadyFound = true
+				break
+			}
+		}
+		if !alreadyFound {
+			candidates = append(candidates, location)
+		}
+	}
+
+	if len(candidates) == 0 {
+		fmt.Println("No new locations to discover!")
+		return ""
+	}
+
+	// Calculate total weight of candidates
+	totalWeight := 0
+	for _, loc := range candidates {
+		totalWeight += loc.Weight
+	}
+
+	// Generate random number and use cumulative weight ranges
+	randomNum := rand.Intn(totalWeight)
+	cumulative := 0
+	fmt.Printf("TotalWeight: %d, RandNum: %d\n", totalWeight, randomNum)
+
+	for _, location := range candidates {
+		cumulative += location.Weight
+		if randomNum < cumulative {
+			fmt.Println("Discovered location:", location.Name)
+			return location.Name
+		}
+	}
+	return ""
+}
+
+// Remove the location at the given index from the slice
+func removeLocation(locations []Location, index int) []Location {
+	return append(locations[:index], locations[index+1:]...)
+}
+
+/*
+////////////////////////////////////////////////////////
+//Rolls Code
+////////////////////////////////////////////////////////
+*/
+
+func rollDice() int {
+	rand.Seed(time.Now().UnixNano())
+	return rand.Intn(6) + 1
+}
+
+func multiRoll(rolls int) int {
+	total := 0
+	for i := 0; i < rolls; i++ {
+		total += rollDice()
+	}
+	return total
+}
+
+func rollUntilSix(minRolls int, minMod int) int {
+	rolls := 0
+	resultTotal := 0
+	for rolls < minRolls {
+		result := rollDice() + minMod
+		if result > 6 {
+			result = 6
+		}
+		resultTotal += result
+		fmt.Printf("Roll %d: %d, Total: %d\n", rolls+1, result, resultTotal)
+
+		if result == 6 {
+			fmt.Println("Got a 6! Continuing to roll...")
+			rolls = 0
+		} else {
+			rolls++
+		}
+	}
+	return resultTotal
+}
+
+/*
+////////////////////////////////////////////////////////
+//Print Code
+////////////////////////////////////////////////////////
+*/
+func printCharacter(player Character) {
+	fmt.Printf("------------\nPlayer Stats: %s\nLevel: %d\nExperience: %d\nTotalLife: %d\nRemainingLife: %d\nAttackRolls: %d\nDefenseRolls: %d\nAttackMod: %d\nDefenseMod: %d\nHitPointMod: %d\nResurrections: %d\n------------\n", player.Name, player.Level, player.Experience, player.HitpointsTotal, player.HitpointsRemaining, player.AttackRolls, player.DefenseRolls, player.StatsMod.AttackMod, player.StatsMod.DefenseMod, player.StatsMod.HitPointMod, player.Resurrections)
+	for i := 0; i < len(player.EquipmentMap); i++ {
+		printItem(player.EquipmentMap[i])
+	}
+	for i := 0; i < len(player.KnownLocations); i++ {
+		fmt.Println(player.KnownLocations[i])
+	}
+}
+
+func printMonster(mob Monster) {
+	fmt.Printf("------------\nMonster Stats: %s\nLevel: %d\nTotalLife: %d\nRemainingLife: %d\nAttackRolls: %d\nDefenseRolls: %d\n------------\n", mob.Name, mob.Level, mob.HitpointsTotal, mob.HitpointsRemaining, mob.AttackRolls, mob.DefenseRolls)
+}
+
+func printItem(item Item) {
+	fmt.Printf("------------\nItem Stats: %s\nSlot: %d \nRarity: %d\nAttackMod: %d\nDefenseMod: %d\nHitPointMod: %d\n\n------------\n", item.Name, item.Slot, item.Rarity, item.StatsMod.AttackMod, item.StatsMod.DefenseMod, item.StatsMod.HitPointMod)
+}
+
+func printResources(resourceStorage map[string]Resource) {
+	fmt.Println("Total resources:")
+	for _, resource := range resourceStorage {
+		fmt.Printf("%s : %d\n", resource.Name, resource.Stock)
+	}
+}
+
+func printMonstersAtLocation(loc Location) {
+	fmt.Println("Monsters At ", loc.Name)
+	guardianCount := 0
+	for _, mob := range loc.Monsters {
+		guardianTag := ""
+		if mob.IsSkillGuardian {
+			guardianTag = " 🎯 [GUARDIAN - " + mob.GuardedSkill.Name + "]"
+			guardianCount++
+		}
+		fmt.Printf("%s Level: %d Exp: %d%s\n", mob.Name, mob.Level, mob.Experience, guardianTag)
+	}
+	if guardianCount > 0 {
+		fmt.Printf("⚠️  %d Skill Guardian(s) present! Defeat them to learn skills.\n", guardianCount)
+	}
+}
+
+/*
+////////////////////////////////////////////////////////
+//Generations Code
+////////////////////////////////////////////////////////
+*/
+
+func generateGameLocation(game *GameState) {
+	game.GameLocations = map[string]Location{}
+	for _, locationValue := range discoverableLocations {
+		generateMonstersForLocation(&locationValue, game)
+		game.GameLocations[locationValue.Name] = locationValue
+	}
+}
+
+func generateLocationsForNewCharacter(char *Character) {
+	generateMissingResourceType(char)
+	char.KnownLocations = []string{"Home", "Training Hall", "Forest", "Lake", "Hills"}
+}
+
+func generateMissingResourceType(char *Character) {
+	for resource := range resourceTypes {
+		_, exists := char.ResourceStorageMap[resourceTypes[resource]]
+		if !exists {
+			char.ResourceStorageMap[resourceTypes[resource]] = Resource{Name: resourceTypes[resource], Stock: 0, RollModifier: 0}
+		}
+
+	}
+}
+
+func generateMonstersForLocation(location *Location, game *GameState) {
+	if location.Type != "Base" {
+		location.Monsters = make([]Monster, 20)
+		for i := 0; i < 20; i++ {
+			location.Monsters[i] = generateBestMonster(game, location.LevelMax, location.RarityMax)
+		}
+
+		// Add Skill Guardians based on location level
+		// Higher level locations have more guardians
+		numGuardians := 0
+		if location.LevelMax >= 10 && location.LevelMax < 30 {
+			numGuardians = 1 // Low level areas: 1 guardian
+		} else if location.LevelMax >= 30 && location.LevelMax < 100 {
+			numGuardians = 2 // Mid level areas: 2 guardians
+		} else if location.LevelMax >= 100 {
+			numGuardians = 3 // High level areas: 3 guardians
+		}
+
+		// Spawn guardians if location is suitable
+		if numGuardians > 0 && len(availableSkills) > 0 {
+			// Create a list of available skills (excluding Tracking and Power Strike)
+			guardableSkills := []Skill{}
+			for _, skill := range availableSkills {
+				if skill.Name != "Tracking" && skill.Name != "Power Strike" {
+					guardableSkills = append(guardableSkills, skill)
+				}
+			}
+
+			// Randomly place guardians
+			for g := 0; g < numGuardians && len(guardableSkills) > 0; g++ {
+				// Pick random position
+				guardianPos := rand.Intn(len(location.Monsters))
+
+				// Pick random skill from guardable skills
+				skillIndex := rand.Intn(len(guardableSkills))
+				guardianSkill := guardableSkills[skillIndex]
+
+				// Generate guardian with appropriate level
+				guardianLevel := location.LevelMax
+				if guardianLevel > 5 {
+					guardianLevel = rand.Intn(guardianLevel-5) + 5 // Level range with minimum
+				}
+
+				guardian := generateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
+				location.Monsters[guardianPos] = guardian
+
+				fmt.Printf("🎯 Spawned %s (Lv%d) guarding %s at %s\n",
+					guardian.Name, guardian.Level, guardianSkill.Name, location.Name)
+			}
+		}
+
+		printMonstersAtLocation(*location)
+	}
+}
+
+func generateBestMonster(game *GameState, levelMax int, rankMax int) Monster {
+	name := monsterNames[rand.Intn(len(monsterNames))]
+	fmt.Printf("LevelMax: %d, rankMax: %d\n", levelMax, rankMax)
+	if levelMax == 0 {
+		levelMax++
+	}
+	if rankMax == 0 {
+		rankMax++
+	}
+	level := rand.Intn(levelMax) + 1
+	rank := rand.Intn(rankMax) + 1
+	var mob = generateMonster(name, level, rank)
+	if rand.Intn(100) <= 1*rank {
+		var item = generateItem(rank)
+		equipBestItem(item, &mob.EquipmentMap, &mob.Inventory)
+		mob.EquipmentMap = map[int]Item{}
+	}
+
+	mob.StatsMod = calculateItemMods(mob.EquipmentMap)
+	mob.HitpointsTotal = mob.HitpointsNatural + mob.StatsMod.HitPointMod
+
+	return mob
+}
+
+// Generate a Skill Guardian - tougher monsters that guard specific skills
+func generateSkillGuardian(skill Skill, level int, rank int) Monster {
+	// Use special guardian name
+	guardianName := skillGuardianNames[rand.Intn(len(skillGuardianNames))]
+
+	// Create base monster with enhanced stats
+	baseMob := generateMonster(guardianName, level, rank)
+
+	// Make guardian significantly tougher
+	baseMob.HitpointsNatural = int(float64(baseMob.HitpointsNatural) * 2.0)
+	baseMob.HitpointsTotal = baseMob.HitpointsNatural
+	baseMob.HitpointsRemaining = baseMob.HitpointsTotal
+	baseMob.AttackRolls = baseMob.AttackRolls + 2
+	baseMob.DefenseRolls = baseMob.DefenseRolls + 2
+	baseMob.ManaTotal = int(float64(baseMob.ManaTotal) * 1.5)
+	baseMob.ManaRemaining = baseMob.ManaTotal
+	baseMob.StaminaTotal = int(float64(baseMob.StaminaTotal) * 1.5)
+	baseMob.StaminaRemaining = baseMob.StaminaTotal
+
+	// Give guardian better equipment
+	for i := 0; i < rank+2; i++ {
+		item := generateItem(rank + 1)
+		equipBestItem(item, &baseMob.EquipmentMap, &baseMob.Inventory)
+	}
+
+	// Mark as skill guardian
+	baseMob.IsSkillGuardian = true
+	baseMob.GuardedSkill = skill
+	baseMob.MonsterType = "Guardian"
+
+	// Recalculate stats with equipment
+	baseMob.StatsMod = calculateItemMods(baseMob.EquipmentMap)
+	baseMob.HitpointsTotal = baseMob.HitpointsNatural + baseMob.StatsMod.HitPointMod
+	baseMob.HitpointsRemaining = baseMob.HitpointsTotal
+
+	return baseMob
+}
+
+// Assign skills to monsters based on their type
+func assignMonsterSkills(monsterType string, level int) []Skill {
+	skills := []Skill{}
+
+	switch monsterType {
+	case "slime":
+		// Slimes are weak but can poison
+		if level >= 3 {
+			skills = append(skills, Skill{
+				Name:        "Acid Spit",
+				ManaCost:    5,
+				Damage:      8,
+				DamageType:  Poison,
+				Effect:      StatusEffect{Type: "poison", Duration: 3, Potency: 3},
+				Description: "Spit acid that poisons",
+			})
+		}
+	case "goblin":
+		// Goblins use stamina-based attacks
+		if level >= 2 {
+			skills = append(skills, Skill{
+				Name:        "Backstab",
+				StaminaCost: 10,
+				Damage:      15,
+				DamageType:  Physical,
+				Effect:      StatusEffect{Type: "none"},
+				Description: "Sneaky physical attack",
+			})
+		}
+	case "orc":
+		// Orcs use powerful physical attacks and buffs
+		if level >= 3 {
+			skills = append(skills, Skill{
+				Name:        "War Cry",
+				StaminaCost: 15,
+				Damage:      0,
+				DamageType:  Physical,
+				Effect:      StatusEffect{Type: "buff_attack", Duration: 3, Potency: 8},
+				Description: "Boost attack power",
+			})
+		}
+		if level >= 5 {
+			skills = append(skills, Skill{
+				Name:        "Berserker Rage",
+				StaminaCost: 20,
+				Damage:      25,
+				DamageType:  Physical,
+				Effect:      StatusEffect{Type: "none"},
+				Description: "Powerful rage attack",
+			})
+		}
+	case "golem":
+		// Golems are tanky with defensive skills
+		if level >= 4 {
+			skills = append(skills, Skill{
+				Name:        "Stone Skin",
+				ManaCost:    10,
+				Damage:      0,
+				DamageType:  Physical,
+				Effect:      StatusEffect{Type: "buff_defense", Duration: 4, Potency: 15},
+				Description: "Harden skin for defense",
+			})
+		}
+	case "hiftier":
+		// Hiftiers are magic users
+		if level >= 3 {
+			skills = append(skills, Skill{
+				Name:        "Mana Bolt",
+				ManaCost:    12,
+				Damage:      18,
+				DamageType:  Lightning,
+				Effect:      StatusEffect{Type: "none"},
+				Description: "Magical lightning bolt",
+			})
+		}
+		if level >= 6 {
+			skills = append(skills, Skill{
+				Name:        "Mind Blast",
+				ManaCost:    18,
+				Damage:      15,
+				DamageType:  Lightning,
+				Effect:      StatusEffect{Type: "stun", Duration: 1, Potency: 1},
+				Description: "Stun the enemy",
+			})
+		}
+	case "kobold":
+		// Kobolds use fire
+		if level >= 2 {
+			skills = append(skills, Skill{
+				Name:        "Fire Breath",
+				ManaCost:    8,
+				Damage:      12,
+				DamageType:  Fire,
+				Effect:      StatusEffect{Type: "burn", Duration: 2, Potency: 2},
+				Description: "Breathe fire",
+			})
+		}
+	case "kitpod":
+		// Kitpods regenerate
+		if level >= 3 {
+			skills = append(skills, Skill{
+				Name:        "Regenerate",
+				ManaCost:    10,
+				Damage:      0,
+				DamageType:  Physical,
+				Effect:      StatusEffect{Type: "regen", Duration: 4, Potency: 5},
+				Description: "Heal over time",
+			})
+		}
+	}
+
+	return skills
+}
+
+func generateMonster(name string, level int, rank int) Monster {
+	hitpoints := multiRoll(rank)
+	mana := multiRoll(rank) + 10
+	stamina := multiRoll(rank) + 10
+
+	// Set resistances based on monster type
+	resistances := map[DamageType]float64{
+		Physical:  1.0,
+		Fire:      1.0,
+		Ice:       1.0,
+		Lightning: 1.0,
+		Poison:    1.0,
+	}
+
+	// Customize based on monster type
+	switch name {
+	case "slime":
+		resistances[Physical] = 0.5 // resistant to physical
+		resistances[Fire] = 2.0     // weak to fire
+	case "golem":
+		resistances[Physical] = 0.25  // very resistant to physical
+		resistances[Lightning] = 2.0  // weak to lightning
+	case "orc":
+		resistances[Fire] = 0.8 // slight fire resistance
+	case "hiftier":
+		resistances[Lightning] = 0.5 // magic resistant
+		resistances[Ice] = 0.5
+		resistances[Fire] = 0.5
+	}
+
+	monster := Monster{
+		Name:               name,
+		Level:              level,
+		Experience:         0,
+		Rank:               rank,
+		HitpointsTotal:     hitpoints,
+		HitpointsNatural:   hitpoints,
+		HitpointsRemaining: hitpoints,
+		ManaTotal:          mana,
+		ManaRemaining:      mana,
+		ManaNatural:        mana,
+		StaminaTotal:       stamina,
+		StaminaRemaining:   stamina,
+		StaminaNatural:     stamina,
+		AttackRolls:        rank,
+		DefenseRolls:       rank,
+		LearnedSkills:      assignMonsterSkills(name, level),
+		StatusEffects:      []StatusEffect{},
+		Resistances:        resistances,
+		MonsterType:        name,
+	}
+	monster.EquipmentMap = map[int]Item{}
+	monster.Inventory = []Item{}
+	for i := 0; i < (level/10)+rank-2; i++ {
+		item := generateItem(rank)
+		equipBestItem(item, &monster.EquipmentMap, &monster.Inventory)
+	}
+
+	return monster
+}
+
+func generateCharacter(name string, level int, rank int) Character {
+	hitpoints := multiRoll(rank)
+	mana := multiRoll(rank) + 20
+	stamina := multiRoll(rank) + 20
+
+	// Start with only 1 basic skill - others must be earned from Skill Guardians
+	learnedSkills := []Skill{
+		availableSkills[4], // Power Strike - basic physical attack
+	}
+
+	resistances := map[DamageType]float64{
+		Physical:  1.0,
+		Fire:      1.0,
+		Ice:       1.0,
+		Lightning: 1.0,
+		Poison:    1.0,
+	}
+
+	return Character{
+		Name:               name,
+		Level:              level,
+		Experience:         0,
+		HitpointsTotal:     hitpoints,
+		HitpointsNatural:   hitpoints,
+		HitpointsRemaining: hitpoints,
+		ManaTotal:          mana,
+		ManaRemaining:      mana,
+		ManaNatural:        mana,
+		StaminaTotal:       stamina,
+		StaminaRemaining:   stamina,
+		StaminaNatural:     stamina,
+		AttackRolls:        rank,
+		DefenseRolls:       rank,
+		LearnedSkills:      learnedSkills,
+		StatusEffects:      []StatusEffect{},
+		Resistances:        resistances,
+		CompletedQuests:    []string{},
+		ActiveQuests:       []string{"quest_1_training"},
+		VillageName:        name + "'s Village", // Set village name
+	}
+}
+
+/*
+////////////////////////////////////////////////////////
+//Village System Functions
+////////////////////////////////////////////////////////
+*/
+
+// Generate a new village for a player
+func generateVillage(playerName string) Village {
+	villageName := playerName + "'s Village"
+	return Village{
+		Name:             villageName,
+		Level:            1,
+		Experience:       0,
+		Villagers:        []Villager{},
+		Defenses:         []Defense{},
+		ResourcePerTick:  make(map[string]int),
+		UnlockedCrafting: []string{},
+		DefenseLevel:     1,
+		LastTideTime:     time.Now().Unix(),
+		TideInterval:     3600, // 1 hour between tides
+		ActiveGuards:     []Guard{},
+	}
+}
+
+// Generate a random villager
+func generateVillager(role string) Villager {
+	firstName := villagerFirstNames[rand.Intn(len(villagerFirstNames))]
+	lastName := villagerLastNames[rand.Intn(len(villagerLastNames))]
+	name := firstName + " " + lastName
+
+	efficiency := rand.Intn(3) + 1 // 1-3 base efficiency
+
+	return Villager{
+		Name:         name,
+		Role:         role,
+		Level:        1,
+		Efficiency:   efficiency,
+		AssignedTask: "",
+		HarvestType:  "",
+	}
+}
+
+// Generate a guard for hire
+func generateGuard(level int) Guard {
+	name := guardNames[rand.Intn(len(guardNames))]
+	baseHP := 20 + (level * 5)
+
+	// Calculate attack/defense rolls based on level
+	attackRolls := (level / 5) + 1
+	defenseRolls := (level / 5) + 1
+
+	// Initialize resistances with default values
+	resistances := map[DamageType]float64{
+		Physical:  1.0,
+		Fire:      1.0,
+		Ice:       1.0,
+		Lightning: 1.0,
+		Poison:    1.0,
+	}
+
+	guard := Guard{
+		Name:               name,
+		Level:              level,
+		HitPoints:          baseHP,
+		HitpointsNatural:   baseHP,
+		HitpointsRemaining: baseHP,
+		AttackBonus:        2 + level,
+		DefenseBonus:       2 + level,
+		AttackRolls:        attackRolls,
+		DefenseRolls:       defenseRolls,
+		Hired:              false,
+		Cost:               50 + (level * 25),
+		Inventory:          []Item{},
+		EquipmentMap:       make(map[int]Item),
+		StatsMod:           StatMod{AttackMod: 0, DefenseMod: 0, HitPointMod: 0},
+		Injured:            false,
+		RecoveryTime:       0,
+		StatusEffects:      []StatusEffect{},
+		Resistances:        resistances,
+	}
+
+	// Generate starting equipment based on level
+	// Guards get 1-3 items based on level
+	numItems := 1 + (level / 3)
+	if numItems > 3 {
+		numItems = 3
+	}
+
+	for i := 0; i < numItems; i++ {
+		// Generate equipment with rarity based on guard level
+		rarity := 1 + (level / 5)
+		if rarity > 5 {
+			rarity = 5
+		}
+		item := generateItem(rarity)
+		equipGuardItem(item, &guard.EquipmentMap, &guard.Inventory)
+	}
+
+	// Recalculate stats with equipment
+	guard.StatsMod = calculateItemMods(guard.EquipmentMap)
+	guard.HitPoints = guard.HitpointsNatural + guard.StatsMod.HitPointMod
+	guard.HitpointsRemaining = guard.HitPoints
+
+	return guard
+}
+
+// Equip items to guards - similar to player equipBestItem
+func equipGuardItem(newItem Item, equipment *map[int]Item, inventory *[]Item) {
+	// If it's a consumable or skill scroll, just add to inventory
+	if newItem.ItemType == "consumable" || newItem.ItemType == "skill_scroll" {
+		(*inventory) = append((*inventory), newItem)
+		return
+	}
+
+	currentItem, ok := (*equipment)[newItem.Slot]
+	if ok {
+		// Compare CP to determine if new item is better
+		if newItem.CP > currentItem.CP {
+			(*equipment)[newItem.Slot] = newItem
+			(*inventory) = append((*inventory), currentItem)
+		} else {
+			(*inventory) = append((*inventory), newItem)
+		}
+	} else {
+		// No item in this slot, equip directly
+		(*equipment)[newItem.Slot] = newItem
+	}
+}
+
+// Guard combat support - guards attack a monster
+func guardAttack(guards []Guard, mob *Monster) int {
+	totalDamage := 0
+
+	for i := range guards {
+		guard := &guards[i]
+
+		// Skip injured or dead guards
+		if guard.Injured || guard.HitpointsRemaining <= 0 {
+			continue
+		}
+
+		// Guard attack calculation
+		guardAttack := multiRoll(guard.AttackRolls) + guard.StatsMod.AttackMod + guard.AttackBonus
+
+		// 10% critical chance for guards
+		if rand.Intn(100) < 10 {
+			guardAttack = guardAttack * 2
+			fmt.Printf("   ⚔️  %s CRITICAL! ", guard.Name)
+		} else {
+			fmt.Printf("   ⚔️  %s attacks: ", guard.Name)
+		}
+
+		// Apply damage to monster
+		mobDef := multiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
+		if guardAttack > mobDef {
+			damage := guardAttack - mobDef
+			finalDamage := applyDamage(damage, Physical, mob)
+			mob.HitpointsRemaining -= finalDamage
+			totalDamage += finalDamage
+			fmt.Printf("%d damage!\n", finalDamage)
+		} else {
+			fmt.Printf("missed!\n")
+		}
+	}
+
+	return totalDamage
+}
+
+// Guard defense - guards can absorb damage from attacks
+func guardDefense(guards []Guard, incomingDamage int) (int, []int) {
+	if len(guards) == 0 {
+		return incomingDamage, nil
+	}
+
+	// Count healthy guards who can help
+	healthyGuards := 0
+	guardIndices := []int{}
+	for i := range guards {
+		if !guards[i].Injured && guards[i].HitpointsRemaining > 0 {
+			healthyGuards++
+			guardIndices = append(guardIndices, i)
+		}
+	}
+
+	if healthyGuards == 0 {
+		return incomingDamage, nil
+	}
+
+	// Guards absorb 20% of damage per healthy guard (max 60%)
+	absorbPercent := healthyGuards * 20
+	if absorbPercent > 60 {
+		absorbPercent = 60
+	}
+
+	absorbedDamage := (incomingDamage * absorbPercent) / 100
+	remainingDamage := incomingDamage - absorbedDamage
+
+	if absorbedDamage > 0 {
+		// Distribute absorbed damage among healthy guards
+		damagePerGuard := absorbedDamage / healthyGuards
+
+		fmt.Printf("\n   🛡️  Guards intercept! Absorbing %d damage\n", absorbedDamage)
+
+		for _, idx := range guardIndices {
+			guards[idx].HitpointsRemaining -= damagePerGuard
+			fmt.Printf("   %s: -%d HP (%d/%d remaining)\n",
+				guards[idx].Name, damagePerGuard,
+				guards[idx].HitpointsRemaining, guards[idx].HitPoints)
+
+			// Check if guard is injured (below 30% HP)
+			if guards[idx].HitpointsRemaining <= (guards[idx].HitPoints * 30 / 100) && !guards[idx].Injured {
+				guards[idx].Injured = true
+				guards[idx].RecoveryTime = 3 // 3 fights to recover
+				fmt.Printf("   ⚠️  %s is injured!\n", guards[idx].Name)
+			}
+		}
+	}
+
+	return remainingDamage, guardIndices
+}
+
+// Process guard recovery - call after each fight to decrement recovery time
+func processGuardRecovery(village *Village) {
+	recoveredGuards := []string{}
+
+	for i := range village.ActiveGuards {
+		guard := &village.ActiveGuards[i]
+
+		// Only process injured guards
+		if guard.Injured && guard.RecoveryTime > 0 {
+			guard.RecoveryTime--
+
+			// Check if guard has recovered
+			if guard.RecoveryTime <= 0 {
+				guard.Injured = false
+				guard.RecoveryTime = 0
+				// Restore guard to full HP
+				guard.HitpointsRemaining = guard.HitPoints
+				recoveredGuards = append(recoveredGuards, guard.Name)
+			}
+		}
+	}
+
+	// Display recovery messages
+	if len(recoveredGuards) > 0 {
+		fmt.Println("\n💚 GUARD RECOVERY 💚")
+		for _, guardName := range recoveredGuards {
+			fmt.Printf("   %s has recovered and is ready for combat!\n", guardName)
+		}
+		fmt.Println()
+	}
+}
+
+// Rescue a villager (random encounter during hunts)
+func rescueVillager(village *Village) Villager {
+	// Randomly assign role
+	role := "harvester"
+	if rand.Intn(100) < 30 { // 30% chance for guard
+		role = "guard"
+	}
+
+	villager := generateVillager(role)
+	village.Villagers = append(village.Villagers, villager)
+
+	fmt.Printf("\n🎉 VILLAGER RESCUED! 🎉\n")
+	fmt.Printf("%s has joined your village as a %s!\n", villager.Name, villager.Role)
+	if role == "harvester" {
+		fmt.Printf("They will help collect resources for your village.\n")
+	} else {
+		fmt.Printf("They will help defend your village from monster tides.\n")
+	}
+
+	return villager
+}
+
+// Process resource auto-collection from harvesters
+func processVillageResourceCollection(village *Village, player *Character) {
+	collected := make(map[string]int)
+
+	for i := range village.Villagers {
+		villager := &village.Villagers[i]
+		if villager.Role == "harvester" && villager.HarvestType != "" {
+			amount := villager.Efficiency + (villager.Level / 2)
+			collected[villager.HarvestType] += amount
+
+			// Add to player resources
+			resource := player.ResourceStorageMap[villager.HarvestType]
+			resource.Stock += amount
+			player.ResourceStorageMap[villager.HarvestType] = resource
+		}
+	}
+
+	if len(collected) > 0 {
+		fmt.Println("\n📦 RESOURCES AUTO-COLLECTED:")
+		for resourceName, amount := range collected {
+			fmt.Printf("  • %s: +%d\n", resourceName, amount)
+		}
+	}
+}
+
+// Level up the village
+func upgradeVillage(village *Village) {
+	requiredXP := village.Level * 100
+
+	if village.Experience >= requiredXP {
+		village.Level++
+		village.Experience -= requiredXP
+
+		fmt.Printf("\n🏘️  VILLAGE LEVEL UP! Now level %d! 🏘️\n", village.Level)
+
+		// Unlock crafting at certain levels
+		if village.Level == 3 && !contains(village.UnlockedCrafting, "potions") {
+			village.UnlockedCrafting = append(village.UnlockedCrafting, "potions")
+			fmt.Println("✨ Unlocked: Potion Crafting!")
+		}
+		if village.Level == 5 && !contains(village.UnlockedCrafting, "armor") {
+			village.UnlockedCrafting = append(village.UnlockedCrafting, "armor")
+			fmt.Println("✨ Unlocked: Armor Crafting!")
+		}
+		if village.Level == 7 && !contains(village.UnlockedCrafting, "weapons") {
+			village.UnlockedCrafting = append(village.UnlockedCrafting, "weapons")
+			fmt.Println("✨ Unlocked: Weapon Crafting!")
+		}
+		if village.Level == 10 && !contains(village.UnlockedCrafting, "skill_upgrades") {
+			village.UnlockedCrafting = append(village.UnlockedCrafting, "skill_upgrades")
+			fmt.Println("✨ Unlocked: Skill Upgrades!")
+		}
+		if village.Level == 10 && !contains(village.UnlockedCrafting, "skill_scrolls") {
+			village.UnlockedCrafting = append(village.UnlockedCrafting, "skill_scrolls")
+			fmt.Println("✨ Unlocked: Skill Scroll Crafting!")
+		}
+	}
+}
+
+// Helper function to check if slice contains string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func generateItem(rarity int) Item {
+	name := ADJECTIVES[rand.Intn(len(ADJECTIVES))] + NOUNS[rand.Intn(len(NOUNS))]
+	slot := rand.Intn(8)
+	attackMod := 0
+	defenseMod := 0
+	hitPointMod := 0
+	var statsMod StatMod = StatMod{AttackMod: attackMod, DefenseMod: defenseMod, HitPointMod: hitPointMod}
+	var item Item = Item{Name: name, Rarity: rarity, Slot: slot, StatsMod: statsMod, CP: 0, ItemType: "equipment"}
+
+	for i := 0; i < rarity; i++ {
+		statChoice := rand.Intn(3)
+		switch statChoice {
+		case 0:
+			{
+				item.StatsMod.AttackMod += rollUntilSix(1, 0)
+			}
+		case 1:
+			{
+				item.StatsMod.DefenseMod += rollUntilSix(1, 0)
+			}
+		case 2:
+			{
+				item.StatsMod.HitPointMod += rollUntilSix(1, 0)
+			}
+		}
+
+	}
+
+	item.CP = item.StatsMod.AttackMod + item.StatsMod.DefenseMod + item.StatsMod.HitPointMod
+	return item
+}
+
+func createHealthPotion(size string) Item {
+	var name string
+	var healAmount int
+
+	switch size {
+	case "small":
+		name = "Small Health Potion"
+		healAmount = 15
+	case "medium":
+		name = "Medium Health Potion"
+		healAmount = 30
+	case "large":
+		name = "Large Health Potion"
+		healAmount = 50
+	default:
+		name = "Health Potion"
+		healAmount = 20
+	}
+
+	return Item{
+		Name:     name,
+		ItemType: "consumable",
+		Rarity:   1,
+		Slot:     -1, // consumables don't use slots
+		CP:       0,
+		Consumable: ConsumableEffect{
+			EffectType: "heal",
+			Value:      healAmount,
+			Duration:   0,
+		},
+	}
+}
+
+// Create a skill scroll item from a skill
+func createSkillScroll(skill Skill) Item {
+	scrollName := skill.Name + " Scroll"
+
+	// Calculate crafting value based on skill power
+	craftingValue := 10 + skill.Damage + skill.ManaCost + skill.StaminaCost
+	if skill.Effect.Type != "none" {
+		craftingValue += skill.Effect.Potency * skill.Effect.Duration
+	}
+
+	return Item{
+		Name:     scrollName,
+		ItemType: "skill_scroll",
+		Rarity:   3, // scrolls are rare
+		Slot:     -1,
+		CP:       0,
+		SkillScroll: SkillScrollData{
+			Skill:         skill,
+			CanBeCrafted:  true,
+			CraftingValue: craftingValue,
+		},
+	}
+}
+
+// Drop beast materials based on monster type
+func dropBeastMaterial(monsterType string, player *Character) {
+	var materials []string
+	var dropChance int
+
+	// Determine what materials this monster type drops
+	switch monsterType {
+	case "slime":
+		materials = []string{"Beast Skin", "Ore Fragment"}
+		dropChance = 40
+	case "goblin":
+		materials = []string{"Beast Bone", "Sharp Fang"}
+		dropChance = 50
+	case "orc":
+		materials = []string{"Beast Bone", "Tough Hide"}
+		dropChance = 55
+	case "kobold":
+		materials = []string{"Sharp Fang", "Beast Skin"}
+		dropChance = 45
+	case "hiftier":
+		materials = []string{"Ore Fragment", "Monster Claw"}
+		dropChance = 60
+	case "golem":
+		materials = []string{"Ore Fragment", "Beast Bone"}
+		dropChance = 70
+	case "kitpod":
+		materials = []string{"Tough Hide", "Monster Claw"}
+		dropChance = 50
+	case "Guardian":
+		// Guardians drop rare materials
+		materials = []string{"Tough Hide", "Sharp Fang", "Monster Claw"}
+		dropChance = 80
+	default:
+		materials = []string{"Beast Skin", "Beast Bone"}
+		dropChance = 40
+	}
+
+	// Roll for drop
+	if rand.Intn(100) < dropChance {
+		// Pick random material from this monster's drop table
+		material := materials[rand.Intn(len(materials))]
+
+		// Determine quantity (1-3)
+		quantity := rand.Intn(3) + 1
+
+		// Add to player resources
+		resource, exists := player.ResourceStorageMap[material]
+		if !exists {
+			resource = Resource{Name: material, Stock: 0, RollModifier: 0}
+		}
+		resource.Stock += quantity
+		player.ResourceStorageMap[material] = resource
+
+		fmt.Printf("Found %d x %s!\n", quantity, material)
+	}
+}
+
+/*
+////////////////////////////////////////////////////////
+//Calculations Code
+////////////////////////////////////////////////////////
+*/
+
+func useConsumableItem(item Item, character *Character) bool {
+	if item.ItemType != "consumable" {
+		fmt.Println("This item cannot be consumed!")
+		return false
+	}
+
+	switch item.Consumable.EffectType {
+	case "heal":
+		healAmount := item.Consumable.Value
+		character.HitpointsRemaining += healAmount
+		if character.HitpointsRemaining > character.HitpointsTotal {
+			character.HitpointsRemaining = character.HitpointsTotal
+		}
+		fmt.Printf("%s used %s and restored %d HP! (%d/%d HP)\n",
+			character.Name, item.Name, healAmount, character.HitpointsRemaining, character.HitpointsTotal)
+		return true
+	default:
+		fmt.Println("Unknown consumable effect!")
+		return false
+	}
+}
+
+func removeItemFromInventory(inventory *[]Item, index int) {
+	*inventory = append((*inventory)[:index], (*inventory)[index+1:]...)
+}
+
+func equipBestItem(newItem Item, equipment *map[int]Item, inventory *[]Item) {
+	// If it's a consumable or skill scroll, just add to inventory
+	if newItem.ItemType == "consumable" || newItem.ItemType == "skill_scroll" {
+		(*inventory) = append((*inventory), newItem)
+		return
+	}
+
+	currentItem, ok := (*equipment)[newItem.Slot]
+	if ok {
+		//currentItem := (*equipment)[newItem.Slot]
+		if newItem.CP > currentItem.CP {
+			(*equipment)[newItem.Slot] = newItem
+			(*inventory) = append((*inventory), currentItem)
+		}
+	} else {
+		(*equipment)[newItem.Slot] = newItem
+	}
+}
+
+func calculateItemMods(equipment map[int]Item) StatMod {
+	var statMod = StatMod{AttackMod: 0, DefenseMod: 0, HitPointMod: 0}
+	attackMod := 0
+	defenseMod := 0
+	hitPointMod := 0
+	for _, item := range equipment {
+		attackMod += item.StatsMod.AttackMod
+		defenseMod += item.StatsMod.DefenseMod
+		hitPointMod += item.StatsMod.HitPointMod
+	}
+	statMod.AttackMod = attackMod
+	statMod.DefenseMod = defenseMod
+	statMod.HitPointMod = hitPointMod
+	return statMod
+}
+
+func levelUp(player *Character) {
+	if player.Experience >= (player.Level * 100) {
+
+		levelsToGrant := ((player.Level * 100) - player.ExpSinceLevel) / 100
+		for i := 0; i < levelsToGrant; i++ {
+			player.Level++
+			player.HitpointsNatural += multiRoll(1)
+			player.HitpointsRemaining = player.HitpointsNatural
+			player.ManaNatural += multiRoll(1) + 5
+			player.ManaTotal = player.ManaNatural
+			player.ManaRemaining = player.ManaTotal
+			player.StaminaNatural += multiRoll(1) + 5
+			player.StaminaTotal = player.StaminaNatural
+			player.StaminaRemaining = player.StaminaTotal
+			player.AttackRolls = player.Level/10 + 1
+			player.DefenseRolls = player.Level/10 + 1
+			player.StatsMod = calculateItemMods(player.EquipmentMap)
+			player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
+			fmt.Printf("🎉 LEVEL UP!!! Now level %d!\n", player.Level)
+			fmt.Printf("HP: %d, MP: %d, SP: %d\n", player.HitpointsTotal, player.ManaTotal, player.StaminaTotal)
+
+			// Skills are now learned from defeating Skill Guardians, not automatic
+		}
+
+	}
+}
+
+func levelUpMob(mob *Monster) {
+	if mob.Experience >= (mob.Level * 100) {
+
+		levelsToGrant := ((mob.Level * 100) - mob.ExpSinceLevel) / 100
+		for i := 0; i < levelsToGrant; i++ {
+			mob.Level++
+			mob.HitpointsNatural += multiRoll(1)
+			mob.HitpointsRemaining = mob.HitpointsNatural
+			mob.ManaNatural += multiRoll(1) + 3
+			mob.ManaTotal = mob.ManaNatural
+			mob.ManaRemaining = mob.ManaTotal
+			mob.StaminaNatural += multiRoll(1) + 3
+			mob.StaminaTotal = mob.StaminaNatural
+			mob.StaminaRemaining = mob.StaminaTotal
+			mob.AttackRolls = mob.Level/10 + 1
+			mob.DefenseRolls = mob.Level/10 + 1
+			mob.StatsMod = calculateItemMods(mob.EquipmentMap)
+			mob.HitpointsTotal = mob.HitpointsNatural + mob.StatsMod.HitPointMod
+			fmt.Printf("%s leveled up to %d!\n", mob.Name, mob.Level)
+		}
+	}
+}
+
+/*
+////////////////////////////////////////////////////////
+//Application Code
+////////////////////////////////////////////////////////
+*/
+
+func harvestResource(resourceType string, resourceStorage *map[string]Resource) int {
+	result := 0
+	resource, exists := (*resourceStorage)[resourceType]
+	if exists {
+		result = rollUntilSix(1, resource.RollModifier)
+		resource.Stock += result
+		(*resourceStorage)[resourceType] = resource
+		printResources(*resourceStorage)
+		fmt.Printf("Resource Harvested: %s : %d\n", resource.Name, result)
+	}
+
+	return result
+}
+
+func goHunt(game *GameState, location *Location, huntCount int, player *Character) {
+	for i := 0; i < huntCount; i++ {
+		fmt.Println("Fights Remaining: ", huntCount-i)
+		if player.HitpointsRemaining <= 0 {
+			fmt.Printf("Player %s HAS RESURRECTED!!!!\n\n", player.Name)
+			player.HitpointsRemaining = player.HitpointsTotal
+			player.Resurrections++
+		}
+
+		var mobLoc int
+		var mob Monster
+
+		// Check if player has Tracking skill
+		hasTracking := false
+		for _, skill := range player.LearnedSkills {
+			if skill.Name == "Tracking" {
+				hasTracking = true
+				break
+			}
+		}
+
+		if hasTracking {
+			// Player can choose which monster to fight
+			fmt.Println("\n🔍 TRACKING ACTIVE - Choose your target:")
+			fmt.Println("============================================================")
+			for idx, monster := range location.Monsters {
+				guardianTag := ""
+				if monster.IsSkillGuardian {
+					guardianTag = " 🎯 [SKILL GUARDIAN]"
+				}
+				fmt.Printf("%d. %s (Lv%d) - HP:%d/%d%s\n",
+					idx+1, monster.Name, monster.Level,
+					monster.HitpointsRemaining, monster.HitpointsTotal,
+					guardianTag)
+			}
+			fmt.Println("============================================================")
+			fmt.Printf("Choose target (1-%d, or 0 for random): ", len(location.Monsters))
+
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			choice := scanner.Text()
+			choiceNum, err := strconv.Atoi(choice)
+
+			if err != nil || choiceNum < 0 || choiceNum > len(location.Monsters) {
+				// Invalid, pick random
+				mobLoc = rand.Intn(len(location.Monsters))
+			} else if choiceNum == 0 {
+				// Random
+				mobLoc = rand.Intn(len(location.Monsters))
+			} else {
+				// Player choice
+				mobLoc = choiceNum - 1
+			}
+		} else {
+			// Random selection (default behavior)
+			mobLoc = rand.Intn(len(location.Monsters))
+		}
+
+		mob = location.Monsters[mobLoc]
+		printMonster(mob)
+		fightToTheDeath(player, game, &mob, location, mobLoc)
+		levelUp(player)
+		levelUpMob(&location.Monsters[mobLoc])
+		checkQuestProgress(player, game)
+		//time.Sleep(2 * time.Second)
+	}
+}
+
+// Apply damage with elemental resistance
+func applyDamage(damage int, damageType DamageType, target interface{}) int {
+	var resistance float64 = 1.0
+
+	switch v := target.(type) {
+	case *Character:
+		if res, ok := v.Resistances[damageType]; ok {
+			resistance = res
+		}
+	case *Monster:
+		if res, ok := v.Resistances[damageType]; ok {
+			resistance = res
+		}
+	}
+
+	finalDamage := int(float64(damage) * resistance)
+	return finalDamage
+}
+
+// Process status effects at the start of a turn
+func processStatusEffects(character *Character) {
+	for i := len(character.StatusEffects) - 1; i >= 0; i-- {
+		effect := &character.StatusEffects[i]
+
+		switch effect.Type {
+		case "poison":
+			character.HitpointsRemaining -= effect.Potency
+			fmt.Printf("%s takes %d poison damage!\n", character.Name, effect.Potency)
+		case "burn":
+			character.HitpointsRemaining -= effect.Potency
+			fmt.Printf("%s takes %d burn damage!\n", character.Name, effect.Potency)
+		case "regen":
+			character.HitpointsRemaining += effect.Potency
+			if character.HitpointsRemaining > character.HitpointsTotal {
+				character.HitpointsRemaining = character.HitpointsTotal
+			}
+			fmt.Printf("%s regenerates %d HP!\n", character.Name, effect.Potency)
+		case "buff_attack":
+			// Buff is active this turn (already applied when effect was first added)
+		case "buff_defense":
+			// Buff is active this turn (already applied when effect was first added)
+		}
+
+		effect.Duration--
+		if effect.Duration <= 0 {
+			// Subtract buff potency from StatsMod when effect expires
+			switch effect.Type {
+			case "buff_attack":
+				character.StatsMod.AttackMod -= effect.Potency
+			case "buff_defense":
+				character.StatsMod.DefenseMod -= effect.Potency
+			}
+			fmt.Printf("%s's %s effect has worn off.\n", character.Name, effect.Type)
+			character.StatusEffects = append(character.StatusEffects[:i], character.StatusEffects[i+1:]...)
+		}
+	}
+}
+
+// Process status effects for monsters
+func processStatusEffectsMob(mob *Monster) {
+	for i := len(mob.StatusEffects) - 1; i >= 0; i-- {
+		effect := &mob.StatusEffects[i]
+
+		switch effect.Type {
+		case "poison":
+			mob.HitpointsRemaining -= effect.Potency
+			fmt.Printf("%s takes %d poison damage!\n", mob.Name, effect.Potency)
+		case "burn":
+			mob.HitpointsRemaining -= effect.Potency
+			fmt.Printf("%s takes %d burn damage!\n", mob.Name, effect.Potency)
+		case "regen":
+			mob.HitpointsRemaining += effect.Potency
+			if mob.HitpointsRemaining > mob.HitpointsTotal {
+				mob.HitpointsRemaining = mob.HitpointsTotal
+			}
+			fmt.Printf("%s regenerates %d HP!\n", mob.Name, effect.Potency)
+		case "buff_attack":
+			// Buff is active this turn
+		case "buff_defense":
+			// Buff is active this turn
+		}
+
+		effect.Duration--
+		if effect.Duration <= 0 {
+			// Subtract buff potency from StatsMod when effect expires
+			switch effect.Type {
+			case "buff_attack":
+				mob.StatsMod.AttackMod -= effect.Potency
+			case "buff_defense":
+				mob.StatsMod.DefenseMod -= effect.Potency
+			}
+			fmt.Printf("%s's %s effect has worn off.\n", mob.Name, effect.Type)
+			mob.StatusEffects = append(mob.StatusEffects[:i], mob.StatusEffects[i+1:]...)
+		}
+	}
+}
+
+// Check if character is stunned
+func isStunned(character *Character) bool {
+	for _, effect := range character.StatusEffects {
+		if effect.Type == "stun" {
+			return true
+		}
+	}
+	return false
+}
+
+// Check if monster is stunned
+func isStunnedMob(mob *Monster) bool {
+	for _, effect := range mob.StatusEffects {
+		if effect.Type == "stun" {
+			return true
+		}
+	}
+	return false
+}
+
+func fightToTheDeath(player *Character, game *GameState, mob *Monster, location *Location, mobLoc int) {
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Printf("\n============================================\n")
+	fmt.Printf("Level %d %s vs Level %d %s (%s)\n", player.Level, player.Name, mob.Level, mob.Name, mob.MonsterType)
+	fmt.Printf("============================================\n")
+
+	// Check if player has guards available for this fight
+	var combatGuards []Guard
+	isSpecialFight := mob.IsSkillGuardian || mob.IsBoss
+
+	// Get player's village and guards
+	if game.Villages != nil {
+		if village, exists := game.Villages[player.VillageName]; exists && isSpecialFight {
+			// Get healthy guards for guardian/boss fights
+			for _, guard := range village.ActiveGuards {
+				if !guard.Injured && guard.HitpointsRemaining > 0 {
+					// Restore guard HP for new fight
+					guard.HitpointsRemaining = guard.HitPoints
+					combatGuards = append(combatGuards, guard)
+				}
+			}
+
+			if len(combatGuards) > 0 {
+				// Boss fights have risk of permanent guard death
+				if mob.IsBoss {
+					fmt.Printf("\n⚠️  WARNING: BOSS FIGHT ⚠️\n")
+					fmt.Printf("Guards can DIE PERMANENTLY in boss fights!\n")
+					fmt.Printf("Available guards: %d\n", len(combatGuards))
+					fmt.Print("Bring guards to this fight? (y/n): ")
+					scanner.Scan()
+					bringGuards := scanner.Text()
+					if bringGuards != "y" && bringGuards != "Y" {
+						combatGuards = []Guard{} // Clear guards if player declines
+						fmt.Println("Fighting without guards...")
+					} else {
+						fmt.Printf("\n⚔️  GUARDS JOINING BOSS BATTLE! ⚔️\n")
+						for _, guard := range combatGuards {
+							fmt.Printf("   %s (Lv%d, HP:%d)\n", guard.Name, guard.Level, guard.HitPoints)
+						}
+						fmt.Println()
+					}
+				} else {
+					fmt.Printf("\n⚔️  GUARDS JOINING BATTLE! ⚔️\n")
+					for _, guard := range combatGuards {
+						fmt.Printf("   %s (Lv%d, HP:%d)\n", guard.Name, guard.Level, guard.HitPoints)
+					}
+					fmt.Println()
+				}
+			}
+		}
+	}
+
+	// Restore mana/stamina at combat start
+	player.ManaRemaining = player.ManaTotal
+	player.StaminaRemaining = player.StaminaTotal
+	mob.ManaRemaining = mob.ManaTotal
+	mob.StaminaRemaining = mob.StaminaTotal
+
+	playerFled := false
+	turnCount := 0
+
+	for player.HitpointsRemaining > 0 && mob.HitpointsRemaining > 0 && !playerFled {
+		turnCount++
+		fmt.Printf("\n========== TURN %d ==========\n", turnCount)
+
+		// Process status effects at start of turn
+		processStatusEffects(player)
+		processStatusEffectsMob(mob)
+
+		// Display current status with all resources
+		fmt.Printf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d\n",
+			player.Name,
+			player.HitpointsRemaining, player.HitpointsTotal,
+			player.ManaRemaining, player.ManaTotal,
+			player.StaminaRemaining, player.StaminaTotal)
+
+		fmt.Printf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d\n",
+			mob.Name,
+			mob.HitpointsRemaining, mob.HitpointsTotal,
+			mob.ManaRemaining, mob.ManaTotal,
+			mob.StaminaRemaining, mob.StaminaTotal)
+
+		// Show active status effects
+		if len(player.StatusEffects) > 0 {
+			fmt.Printf("%s effects: ", player.Name)
+			for _, eff := range player.StatusEffects {
+				fmt.Printf("[%s:%d] ", eff.Type, eff.Duration)
+			}
+			fmt.Println()
+		}
+		if len(mob.StatusEffects) > 0 {
+			fmt.Printf("%s effects: ", mob.Name)
+			for _, eff := range mob.StatusEffects {
+				fmt.Printf("[%s:%d] ", eff.Type, eff.Duration)
+			}
+			fmt.Println()
+		}
+
+		// Declare variables before potential goto
+		var playerAttack int
+		var playerDef int
+		var defending bool
+		var skipPlayerTurn bool
+		var usedSkillDamage int
+		var usedSkillType DamageType = Physical
+		var action string
+
+		// Check if player is stunned
+		if isStunned(player) {
+			fmt.Printf("%s is STUNNED and cannot act!\n", player.Name)
+			// Skip player turn but monster still attacks
+			playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+			goto MonsterTurn
+		}
+
+		// Player action choice
+		fmt.Println("\n--- Your Action ---")
+		fmt.Println("1 = Attack (physical)")
+		fmt.Println("2 = Defend (+50% defense, 50% attack)")
+		fmt.Println("3 = Use Item")
+		fmt.Println("4 = Use Skill")
+		fmt.Println("5 = Flee")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		action = scanner.Text()
+
+		switch action {
+		case "1": // Attack
+			playerAttack = multiRoll(player.AttackRolls) + player.StatsMod.AttackMod
+			playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+
+			// Critical hit check (15% chance)
+			if rand.Intn(100) < 15 {
+				playerAttack = playerAttack * 2
+				fmt.Printf("*** CRITICAL HIT! ***\n")
+			}
+
+		case "2": // Defend
+			defending = true
+			playerAttack = (multiRoll(player.AttackRolls) + player.StatsMod.AttackMod) / 2
+			playerDef = int(float64(multiRoll(player.DefenseRolls)+player.StatsMod.DefenseMod) * 1.5)
+			fmt.Printf("%s takes a defensive stance!\n", player.Name)
+
+		case "3": // Use Item
+			consumables := []Item{}
+			consumableIndices := []int{}
+			for idx, item := range player.Inventory {
+				if item.ItemType == "consumable" {
+					consumables = append(consumables, item)
+					consumableIndices = append(consumableIndices, idx)
+				}
+			}
+
+			if len(consumables) == 0 {
+				fmt.Println("No consumable items!")
+				skipPlayerTurn = true
+			} else {
+				fmt.Println("Available items:")
+				for idx, item := range consumables {
+					fmt.Printf("%d = %s (Heals %d HP)\n", idx+1, item.Name, item.Consumable.Value)
+				}
+				fmt.Print("Choose (0=cancel): ")
+				scanner.Scan()
+				itemChoice := scanner.Text()
+				itemIdx, err := strconv.Atoi(itemChoice)
+
+				if err != nil || itemIdx < 0 || itemIdx > len(consumables) {
+					fmt.Println("Invalid choice!")
+					skipPlayerTurn = true
+				} else if itemIdx == 0 {
+					fmt.Println("Cancelled.")
+					skipPlayerTurn = true
+				} else {
+					selectedItem := consumables[itemIdx-1]
+					originalIdx := consumableIndices[itemIdx-1]
+					useConsumableItem(selectedItem, player)
+					removeItemFromInventory(&player.Inventory, originalIdx)
+				}
+			}
+			playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+
+		case "4": // Use Skill
+			if len(player.LearnedSkills) == 0 {
+				fmt.Println("No skills learned!")
+				skipPlayerTurn = true
+			} else {
+				fmt.Println("\nAvailable Skills:")
+				for idx, skill := range player.LearnedSkills {
+					canAfford := "✓"
+					if skill.ManaCost > player.ManaRemaining || skill.StaminaCost > player.StaminaRemaining {
+						canAfford = "✗"
+					}
+					fmt.Printf("%d [%s] %s - ", idx+1, canAfford, skill.Name)
+					if skill.ManaCost > 0 {
+						fmt.Printf("%dMP ", skill.ManaCost)
+					}
+					if skill.StaminaCost > 0 {
+						fmt.Printf("%dSP ", skill.StaminaCost)
+					}
+					fmt.Printf("| %s\n", skill.Description)
+				}
+				fmt.Print("Choose skill (0=cancel): ")
+				scanner.Scan()
+				skillChoice := scanner.Text()
+				skillIdx, err := strconv.Atoi(skillChoice)
+
+				if err != nil || skillIdx < 0 || skillIdx > len(player.LearnedSkills) {
+					fmt.Println("Invalid choice!")
+					skipPlayerTurn = true
+				} else if skillIdx == 0 {
+					fmt.Println("Cancelled.")
+					skipPlayerTurn = true
+				} else {
+					skill := player.LearnedSkills[skillIdx-1]
+
+					// Check resources
+					if skill.ManaCost > player.ManaRemaining {
+						fmt.Println("Not enough mana!")
+						skipPlayerTurn = true
+					} else if skill.StaminaCost > player.StaminaRemaining {
+						fmt.Println("Not enough stamina!")
+						skipPlayerTurn = true
+					} else {
+						// Use skill
+						player.ManaRemaining -= skill.ManaCost
+						player.StaminaRemaining -= skill.StaminaCost
+
+						fmt.Printf("%s uses %s!\n", player.Name, skill.Name)
+
+						// Handle healing skills
+						if skill.Damage < 0 {
+							healAmount := -skill.Damage
+							player.HitpointsRemaining += healAmount
+							if player.HitpointsRemaining > player.HitpointsTotal {
+								player.HitpointsRemaining = player.HitpointsTotal
+							}
+							fmt.Printf("%s heals for %d HP!\n", player.Name, healAmount)
+						} else if skill.Damage > 0 {
+							// Damage skill
+							usedSkillDamage = skill.Damage
+							usedSkillType = skill.DamageType
+						}
+
+						// Apply status effect
+						if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+							if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
+								// Buff on self
+								player.StatusEffects = append(player.StatusEffects, skill.Effect)
+								// Apply buff to StatsMod immediately
+								if skill.Effect.Type == "buff_attack" {
+									player.StatsMod.AttackMod += skill.Effect.Potency
+								} else if skill.Effect.Type == "buff_defense" {
+									player.StatsMod.DefenseMod += skill.Effect.Potency
+								}
+								fmt.Printf("%s gains %s effect!\n", player.Name, skill.Effect.Type)
+							} else {
+								// Debuff on enemy
+								mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								fmt.Printf("%s is afflicted with %s!\n", mob.Name, skill.Effect.Type)
+							}
+						}
+					}
+				}
+			}
+			playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+
+		case "5": // Flee
+			fleeChance := 50 + (player.Level - mob.Level) * 5
+			if fleeChance > 90 {
+				fleeChance = 90
+			}
+			if fleeChance < 20 {
+				fleeChance = 20
+			}
+
+			roll := rand.Intn(100)
+			if roll < fleeChance {
+				fmt.Printf("%s successfully fled from combat!\n", player.Name)
+				playerFled = true
+				continue
+			} else {
+				fmt.Printf("%s tried to flee but failed!\n", player.Name)
+				skipPlayerTurn = true
+				playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+			}
+
+		default:
+			fmt.Println("Invalid action! Defaulting to Attack.")
+			playerAttack = multiRoll(player.AttackRolls) + player.StatsMod.AttackMod
+			playerDef = multiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
+		}
+
+		// Player attacks (if not skipped)
+		if !skipPlayerTurn && (playerAttack > 0 || usedSkillDamage > 0) {
+			mobDef := multiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
+
+			if usedSkillDamage > 0 {
+				// Skill attack
+				finalDamage := applyDamage(usedSkillDamage, usedSkillType, mob)
+				mob.HitpointsRemaining -= finalDamage
+
+				if usedSkillType != Physical {
+					fmt.Printf("Deals %d %s damage", finalDamage, usedSkillType)
+					resistance := mob.Resistances[usedSkillType]
+					if resistance < 1.0 {
+						fmt.Printf(" (resistant!)")
+					} else if resistance > 1.0 {
+						fmt.Printf(" (weak!)")
+					}
+					fmt.Println()
+				} else {
+					fmt.Printf("Deals %d damage!\n", finalDamage)
+				}
+			} else if playerAttack > mobDef {
+				// Normal attack
+				diff := playerAttack - mobDef
+				finalDamage := applyDamage(diff, Physical, mob)
+				mob.HitpointsRemaining -= finalDamage
+
+				if defending {
+					fmt.Printf("%s counterattacks for %d damage!\n", player.Name, finalDamage)
+				} else {
+					fmt.Printf("%s attacks for %d damage!\n", player.Name, finalDamage)
+				}
+			} else {
+				fmt.Printf("%s's attack missed!\n", player.Name)
+			}
+		}
+
+		// Guards attack (if available and mob still alive)
+		if len(combatGuards) > 0 && mob.HitpointsRemaining > 0 && !skipPlayerTurn {
+			fmt.Println("\n--- Guard Support ---")
+			guardDamage := guardAttack(combatGuards, mob)
+			if guardDamage > 0 {
+				fmt.Printf("   Total guard damage: %d\n", guardDamage)
+			}
+		}
+
+	MonsterTurn:
+		// Monster attacks back
+		if mob.HitpointsRemaining > 0 && !playerFled {
+			// Check if monster is stunned
+			if isStunnedMob(mob) {
+				fmt.Printf("%s is STUNNED and cannot act!\n", mob.Name)
+			} else {
+				// Simple monster AI: use skill if available and has resources, otherwise attack
+				useMonsterSkill := false
+				if len(mob.LearnedSkills) > 0 && rand.Intn(100) < 40 {
+					// 40% chance to use skill
+					skill := mob.LearnedSkills[rand.Intn(len(mob.LearnedSkills))]
+					if skill.ManaCost <= mob.ManaRemaining && skill.StaminaCost <= mob.StaminaRemaining {
+						mob.ManaRemaining -= skill.ManaCost
+						mob.StaminaRemaining -= skill.StaminaCost
+						useMonsterSkill = true
+
+						fmt.Printf("%s uses %s!\n", mob.Name, skill.Name)
+
+						if skill.Damage < 0 {
+							healAmount := -skill.Damage
+							mob.HitpointsRemaining += healAmount
+							if mob.HitpointsRemaining > mob.HitpointsTotal {
+								mob.HitpointsRemaining = mob.HitpointsTotal
+							}
+							fmt.Printf("%s heals for %d HP!\n", mob.Name, healAmount)
+						} else if skill.Damage > 0 {
+							finalDamage := applyDamage(skill.Damage, skill.DamageType, player)
+
+							// Guards can absorb some damage
+							if len(combatGuards) > 0 {
+								finalDamage, _ = guardDefense(combatGuards, finalDamage)
+							}
+
+							player.HitpointsRemaining -= finalDamage
+							fmt.Printf("Deals %d damage to %s!\n", finalDamage, player.Name)
+						}
+
+						if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+							if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" {
+								mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
+								// Apply buff to StatsMod immediately
+								if skill.Effect.Type == "buff_attack" {
+									mob.StatsMod.AttackMod += skill.Effect.Potency
+								} else if skill.Effect.Type == "buff_defense" {
+									mob.StatsMod.DefenseMod += skill.Effect.Potency
+								}
+							} else {
+								player.StatusEffects = append(player.StatusEffects, skill.Effect)
+								fmt.Printf("%s is afflicted with %s!\n", player.Name, skill.Effect.Type)
+							}
+						}
+					}
+				}
+
+				if !useMonsterSkill {
+					// Normal attack
+					mobAttack := multiRoll(mob.AttackRolls) + mob.StatsMod.AttackMod
+
+					// Monster critical hit (10% chance)
+					if rand.Intn(100) < 10 {
+						mobAttack = mobAttack * 2
+						fmt.Printf("*** %s CRITICAL HIT! ***\n", mob.Name)
+					}
+
+					if mobAttack > playerDef {
+						diff := mobAttack - playerDef
+						finalDamage := applyDamage(diff, Physical, player)
+
+						// Guards can absorb some damage
+						if len(combatGuards) > 0 {
+							finalDamage, _ = guardDefense(combatGuards, finalDamage)
+						}
+
+						player.HitpointsRemaining -= finalDamage
+						fmt.Printf("%s attacks for %d damage!\n", mob.Name, finalDamage)
+					} else {
+						fmt.Printf("%s's attack missed!\n", mob.Name)
+					}
+				}
+			}
+		}
+	}
+
+	// Combat resolution
+	if playerFled {
+		fmt.Println("\n========================================")
+		fmt.Println("You escaped safely, but gained no rewards.")
+		fmt.Println("========================================")
+	} else if player.HitpointsRemaining > 0 {
+		player.Experience += mob.Level * 10
+		fmt.Printf("\n========================================\n")
+		fmt.Printf("💥 VICTORY! %s Wins! (+%d XP)\n", player.Name, mob.Level*10)
+		fmt.Printf("========================================\n")
+
+		// Check if this was a Skill Guardian
+		if mob.IsSkillGuardian {
+			fmt.Printf("\n🎯 SKILL GUARDIAN DEFEATED! 🎯\n")
+			fmt.Printf("You have defeated %s and can now learn: %s\n", mob.Name, mob.GuardedSkill.Name)
+			fmt.Printf("Description: %s\n\n", mob.GuardedSkill.Description)
+			fmt.Println("Choose your reward:")
+			fmt.Println("1 = Absorb the skill immediately (learn now)")
+			fmt.Println("2 = Take a skill scroll (can learn later or use for crafting)")
+			fmt.Print("Choice: ")
+
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			choice := scanner.Text()
+
+			switch choice {
+			case "1":
+				// Absorb skill directly
+				player.LearnedSkills = append(player.LearnedSkills, mob.GuardedSkill)
+				fmt.Printf("\n✨ You have learned %s! ✨\n", mob.GuardedSkill.Name)
+				fmt.Printf("You can now use this skill in combat.\n\n")
+			case "2":
+				// Get skill scroll
+				scroll := createSkillScroll(mob.GuardedSkill)
+				player.Inventory = append(player.Inventory, scroll)
+				fmt.Printf("\n📜 You received a %s! 📜\n", scroll.Name)
+				fmt.Printf("You can use it later to learn the skill or craft it into equipment.\n")
+				fmt.Printf("Crafting Value: %d\n\n", scroll.SkillScroll.CraftingValue)
+			default:
+				// Default to scroll if invalid choice
+				scroll := createSkillScroll(mob.GuardedSkill)
+				player.Inventory = append(player.Inventory, scroll)
+				fmt.Printf("\n📜 You received a %s! 📜\n", scroll.Name)
+			}
+		}
+
+		// Loot enemy equipment and possibly add a health potion
+		for _, item := range mob.EquipmentMap {
+			equipBestItem(item, &player.EquipmentMap, &player.Inventory)
+		}
+
+		// Drop beast materials based on monster type
+		dropBeastMaterial(mob.MonsterType, player)
+
+		// 30% chance to get a health potion
+		if rand.Intn(100) < 30 {
+			potionSize := "small"
+			roll := rand.Intn(100)
+			if roll < 50 {
+				potionSize = "small"
+			} else if roll < 85 {
+				potionSize = "medium"
+			} else {
+				potionSize = "large"
+			}
+			potion := createHealthPotion(potionSize)
+			player.Inventory = append(player.Inventory, potion)
+			fmt.Printf("Found a %s!\n", potion.Name)
+		}
+
+		// 15% chance to rescue a villager after victory
+		if rand.Intn(100) < 15 {
+			// Check if player has a village
+			if game.Villages == nil {
+				game.Villages = make(map[string]Village)
+			}
+
+			village, exists := game.Villages[player.VillageName]
+			if !exists {
+				// Create village if it doesn't exist
+				village = generateVillage(player.Name)
+				player.VillageName = player.Name + "'s Village"
+			}
+
+			// Rescue the villager
+			rescueVillager(&village)
+
+			// Grant village XP
+			village.Experience += 25
+			fmt.Println("+25 Village XP")
+
+			// Save village back to game state
+			game.Villages[player.VillageName] = village
+		}
+
+		player.StatsMod = calculateItemMods(player.EquipmentMap)
+		location.Monsters[mobLoc] = generateBestMonster(game, location.LevelMax, location.RarityMax)
+
+		// Update guard states in village after combat
+		if len(combatGuards) > 0 {
+			if village, exists := game.Villages[player.VillageName]; exists {
+				deadGuards := []string{}
+
+				// Update the ActiveGuards array with combat results
+				for i := len(village.ActiveGuards) - 1; i >= 0; i-- {
+					guard := village.ActiveGuards[i]
+
+					// Find matching guard in combatGuards by name
+					for _, combatGuard := range combatGuards {
+						if guard.Name == combatGuard.Name {
+							// Boss fights: Guards can die permanently
+							if mob.IsBoss && combatGuard.HitpointsRemaining <= 0 {
+								deadGuards = append(deadGuards, combatGuard.Name)
+								// Remove guard from village (permanent death)
+								village.ActiveGuards = append(village.ActiveGuards[:i], village.ActiveGuards[i+1:]...)
+							} else {
+								// Normal/Guardian fights: Update HP and injury status
+								village.ActiveGuards[i].HitpointsRemaining = combatGuard.HitpointsRemaining
+								village.ActiveGuards[i].Injured = combatGuard.Injured
+								village.ActiveGuards[i].RecoveryTime = combatGuard.RecoveryTime
+							}
+							break
+						}
+					}
+				}
+
+				// Display guard death messages for boss fights
+				if len(deadGuards) > 0 {
+					fmt.Println("\n💀 GUARDS FALLEN 💀")
+					for _, guardName := range deadGuards {
+						fmt.Printf("   %s has died in battle! (PERMANENT LOSS)\n", guardName)
+					}
+					fmt.Println()
+				}
+
+				// Save updated village
+				game.Villages[player.VillageName] = village
+			}
+		}
+	} else {
+		fmt.Printf("\n========================================\n")
+		fmt.Printf("💀 DEFEAT! %s HAS DIED!\n", player.Name)
+		fmt.Printf("%s Wins!\n", mob.Name)
+		fmt.Printf("========================================\n")
+
+		for _, item := range player.EquipmentMap {
+			equipBestItem(item, &mob.EquipmentMap, &mob.Inventory)
+		}
+
+		location.Monsters[mobLoc].StatsMod = calculateItemMods(mob.EquipmentMap)
+		location.Monsters[mobLoc].Experience += player.Level * 100
+	}
+
+	// Process guard recovery after combat (for all guards in village, not just combat participants)
+	if game.Villages != nil {
+		if village, exists := game.Villages[player.VillageName]; exists {
+			processGuardRecovery(&village)
+			// Save updated village with recovery status
+			game.Villages[player.VillageName] = village
+		}
+	}
+}
+
+/*
+////////////////////////////////////////////////////////
+//Village Menu System
+////////////////////////////////////////////////////////
+*/
+
+func showVillageMenu(gameState *GameState, player *Character, village *Village) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		// Process auto-collection when entering village menu
+		processVillageResourceCollection(village, player)
+		upgradeVillage(village)
+
+		fmt.Println("\n============================================================")
+		fmt.Printf("🏘️  %s - Level %d\n", village.Name, village.Level)
+		fmt.Println("============================================================")
+		fmt.Printf("Experience: %d/%d\n", village.Experience, village.Level*100)
+		fmt.Printf("Villagers: %d (Harvesters: %d, Guards: %d)\n",
+			len(village.Villagers),
+			countVillagersByRole(village, "harvester"),
+			countVillagersByRole(village, "guard"))
+		fmt.Printf("Hired Guards: %d\n", len(village.ActiveGuards))
+		fmt.Printf("Defenses Built: %d (Level %d)\n", len(village.Defenses), village.DefenseLevel)
+
+		// Show unlocked crafting
+		if len(village.UnlockedCrafting) > 0 {
+			fmt.Print("Unlocked Crafting: ")
+			for i, craft := range village.UnlockedCrafting {
+				if i > 0 {
+					fmt.Print(", ")
+				}
+				fmt.Print(craft)
+			}
+			fmt.Println()
+		}
+
+		fmt.Println("\n--- Village Management ---")
+		fmt.Println("1 = View Villagers")
+		fmt.Println("2 = Assign Harvester Tasks")
+		fmt.Println("3 = Hire Guards")
+		fmt.Println("4 = Crafting")
+		fmt.Println("5 = Build Defenses")
+		fmt.Println("6 = Check Next Monster Tide")
+		fmt.Println("7 = Defend Against Tide (if ready)")
+		fmt.Println("8 = Manage Guards (Equipment & Status)")
+		fmt.Println("0 = Return to Main Menu")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			viewVillagers(village)
+		case "2":
+			assignVillagerTask(village, player)
+		case "3":
+			hireGuardMenu(village, player)
+		case "4":
+			craftingMenu(village, player)
+		case "5":
+			buildDefenseMenu(village, player)
+		case "6":
+			checkMonsterTide(village)
+		case "7":
+			// Check if tide is ready
+			currentTime := time.Now().Unix()
+			timeSinceLastTide := currentTime - village.LastTideTime
+			timeUntilNext := village.TideInterval - int(timeSinceLastTide)
+
+			if timeUntilNext <= 0 {
+				monsterTideDefense(gameState, player, village)
+				// Save after tide
+				gameState.CharactersMap[player.Name] = *player
+				gameState.Villages[player.VillageName] = *village
+				writeGameStateToFile(*gameState, "gamestate.json")
+			} else {
+				hours := timeUntilNext / 3600
+				minutes := (timeUntilNext % 3600) / 60
+				fmt.Printf("\n⏰ Tide not ready yet! Wait %d hours, %d minutes\n", hours, minutes)
+			}
+		case "8":
+			manageGuardsMenu(gameState, player, village)
+		case "0":
+			// Save and return
+			gameState.CharactersMap[player.Name] = *player
+			gameState.Villages[player.VillageName] = *village
+			writeGameStateToFile(*gameState, "gamestate.json")
+			fmt.Println("\n💾 Village saved")
+			return
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+func countVillagersByRole(village *Village, role string) int {
+	count := 0
+	for _, v := range village.Villagers {
+		if v.Role == role {
+			count++
+		}
+	}
+	return count
+}
+
+func manageGuardsMenu(gameState *GameState, player *Character, village *Village) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("⚔️  GUARD MANAGEMENT")
+		fmt.Println("============================================================")
+
+		if len(village.ActiveGuards) == 0 {
+			fmt.Println("\nNo guards hired yet!")
+			fmt.Println("Hire guards from the main village menu (option 3)")
+			fmt.Print("\nPress ENTER to return...")
+			scanner.Scan()
+			return
+		}
+
+		fmt.Printf("\nHired Guards: %d\n\n", len(village.ActiveGuards))
+
+		// Display all guards with status
+		for i, guard := range village.ActiveGuards {
+			statusIcon := "✅"
+			statusText := "Ready"
+			if guard.Injured {
+				statusIcon = "🤕"
+				statusText = fmt.Sprintf("Injured (%d fights to recover)", guard.RecoveryTime)
+			}
+
+			fmt.Printf("%d. %s %s (Lv%d)\n", i+1, statusIcon, guard.Name, guard.Level)
+			fmt.Printf("   HP: %d/%d | Status: %s\n",
+				guard.HitpointsRemaining, guard.HitPoints, statusText)
+			fmt.Printf("   Attack: %d rolls (+%d) | Defense: %d rolls (+%d)\n",
+				guard.AttackRolls, guard.AttackBonus+guard.StatsMod.AttackMod,
+				guard.DefenseRolls, guard.DefenseBonus+guard.StatsMod.DefenseMod)
+			fmt.Printf("   Equipment: %d items | Total CP: %d\n",
+				len(guard.EquipmentMap),
+				guard.StatsMod.AttackMod+guard.StatsMod.DefenseMod+guard.StatsMod.HitPointMod)
+			fmt.Println()
+		}
+
+		fmt.Println("Select a guard to manage (0=back):")
+		fmt.Print("Choice: ")
+		scanner.Scan()
+		choice := scanner.Text()
+		idx, err := strconv.Atoi(choice)
+
+		if err != nil || idx < 0 || idx > len(village.ActiveGuards) {
+			fmt.Println("Invalid choice!")
+			continue
+		}
+		if idx == 0 {
+			return
+		}
+
+		// Manage selected guard
+		manageIndividualGuard(&village.ActiveGuards[idx-1], player)
+
+		// Save village after any changes
+		gameState.Villages[player.VillageName] = *village
+	}
+}
+
+func manageIndividualGuard(guard *Guard, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Printf("⚔️  %s (Level %d)\n", guard.Name, guard.Level)
+		fmt.Println("============================================================")
+
+		// Show status
+		statusText := "Ready for combat"
+		if guard.Injured {
+			statusText = fmt.Sprintf("Injured - %d fights until recovery", guard.RecoveryTime)
+		}
+
+		fmt.Printf("\nStatus: %s\n", statusText)
+		fmt.Printf("HP: %d/%d (Natural: %d)\n", guard.HitpointsRemaining, guard.HitPoints, guard.HitpointsNatural)
+		fmt.Printf("Attack: %d rolls + %d bonus = %d total\n",
+			guard.AttackRolls, guard.AttackBonus+guard.StatsMod.AttackMod,
+			guard.AttackRolls*6+guard.AttackBonus+guard.StatsMod.AttackMod)
+		fmt.Printf("Defense: %d rolls + %d bonus = %d total\n",
+			guard.DefenseRolls, guard.DefenseBonus+guard.StatsMod.DefenseMod,
+			guard.DefenseRolls*6+guard.DefenseBonus+guard.StatsMod.DefenseMod)
+
+		// Show equipment
+		fmt.Println("\n--- EQUIPPED ITEMS ---")
+		if len(guard.EquipmentMap) == 0 {
+			fmt.Println("No equipment")
+		} else {
+			slotNames := map[int]string{
+				0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
+				4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
+			}
+			for slot, item := range guard.EquipmentMap {
+				slotName := slotNames[slot]
+				if slotName == "" {
+					slotName = fmt.Sprintf("Slot %d", slot)
+				}
+				fmt.Printf("[%s] %s (CP:%d, Rarity:%d)\n", slotName, item.Name, item.CP, item.Rarity)
+				if item.StatsMod.AttackMod > 0 {
+					fmt.Printf("  +%d Attack\n", item.StatsMod.AttackMod)
+				}
+				if item.StatsMod.DefenseMod > 0 {
+					fmt.Printf("  +%d Defense\n", item.StatsMod.DefenseMod)
+				}
+				if item.StatsMod.HitPointMod > 0 {
+					fmt.Printf("  +%d HP\n", item.StatsMod.HitPointMod)
+				}
+			}
+		}
+
+		// Show inventory
+		fmt.Println("\n--- INVENTORY ---")
+		if len(guard.Inventory) == 0 {
+			fmt.Println("Empty")
+		} else {
+			for i, item := range guard.Inventory {
+				fmt.Printf("%d. %s (CP:%d, Rarity:%d, Slot:%d)\n", i+1, item.Name, item.CP, item.Rarity, item.Slot)
+			}
+		}
+
+		// Show equipment stats summary
+		fmt.Println("\n--- EQUIPMENT BONUS ---")
+		fmt.Printf("Total: +%d Attack, +%d Defense, +%d HP\n",
+			guard.StatsMod.AttackMod, guard.StatsMod.DefenseMod, guard.StatsMod.HitPointMod)
+
+		// Menu options
+		fmt.Println("\n--- OPTIONS ---")
+		fmt.Println("1 = Equip Item from Inventory")
+		fmt.Println("2 = Unequip Item to Inventory")
+		fmt.Println("3 = Give Item from Player")
+		fmt.Println("4 = Take Item to Player")
+		fmt.Println("5 = Heal Guard (costs 1 health potion)")
+		fmt.Println("0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			equipGuardItemFromInventory(guard)
+		case "2":
+			unequipGuardItem(guard)
+		case "3":
+			giveItemToGuard(guard, player)
+		case "4":
+			takeItemFromGuard(guard, player)
+		case "5":
+			healGuard(guard, player)
+		case "0":
+			return
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+func equipGuardItemFromInventory(guard *Guard) {
+	if len(guard.Inventory) == 0 {
+		fmt.Println("\nGuard has no items in inventory!")
+		return
+	}
+
+	fmt.Println("\nSelect item to equip:")
+	for i, item := range guard.Inventory {
+		fmt.Printf("%d. %s (CP:%d, Slot:%d)\n", i+1, item.Name, item.CP, item.Slot)
+	}
+	fmt.Print("Choice (0=cancel): ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(guard.Inventory) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	item := guard.Inventory[idx-1]
+	equipGuardItem(item, &guard.EquipmentMap, &guard.Inventory)
+
+	// Recalculate stats
+	guard.StatsMod = calculateItemMods(guard.EquipmentMap)
+	guard.HitPoints = guard.HitpointsNatural + guard.StatsMod.HitPointMod
+	if guard.HitpointsRemaining > guard.HitPoints {
+		guard.HitpointsRemaining = guard.HitPoints
+	}
+
+	fmt.Printf("\n✅ Equipped %s\n", item.Name)
+}
+
+func unequipGuardItem(guard *Guard) {
+	if len(guard.EquipmentMap) == 0 {
+		fmt.Println("\nGuard has no equipped items!")
+		return
+	}
+
+	fmt.Println("\nSelect slot to unequip:")
+	slotNames := map[int]string{
+		0: "Head", 1: "Chest", 2: "Legs", 3: "Feet",
+		4: "Hands", 5: "Main Hand", 6: "Off Hand", 7: "Accessory",
+	}
+
+	slots := []int{}
+	for slot := range guard.EquipmentMap {
+		slots = append(slots, slot)
+	}
+
+	for i, slot := range slots {
+		item := guard.EquipmentMap[slot]
+		slotName := slotNames[slot]
+		if slotName == "" {
+			slotName = fmt.Sprintf("Slot %d", slot)
+		}
+		fmt.Printf("%d. [%s] %s (CP:%d)\n", i+1, slotName, item.Name, item.CP)
+	}
+	fmt.Print("Choice (0=cancel): ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(slots) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	slot := slots[idx-1]
+	item := guard.EquipmentMap[slot]
+	guard.Inventory = append(guard.Inventory, item)
+	delete(guard.EquipmentMap, slot)
+
+	// Recalculate stats
+	guard.StatsMod = calculateItemMods(guard.EquipmentMap)
+	guard.HitPoints = guard.HitpointsNatural + guard.StatsMod.HitPointMod
+	if guard.HitpointsRemaining > guard.HitPoints {
+		guard.HitpointsRemaining = guard.HitPoints
+	}
+
+	fmt.Printf("\n✅ Unequipped %s\n", item.Name)
+}
+
+func giveItemToGuard(guard *Guard, player *Character) {
+	if len(player.Inventory) == 0 {
+		fmt.Println("\nYou have no items to give!")
+		return
+	}
+
+	// Filter only equipment items
+	equipment := []Item{}
+	equipmentIndices := []int{}
+	for i, item := range player.Inventory {
+		if item.ItemType == "equipment" || item.ItemType == "" {
+			equipment = append(equipment, item)
+			equipmentIndices = append(equipmentIndices, i)
+		}
+	}
+
+	if len(equipment) == 0 {
+		fmt.Println("\nYou have no equipment items to give!")
+		return
+	}
+
+	fmt.Println("\nSelect item to give to guard:")
+	for i, item := range equipment {
+		fmt.Printf("%d. %s (CP:%d, Rarity:%d)\n", i+1, item.Name, item.CP, item.Rarity)
+	}
+	fmt.Print("Choice (0=cancel): ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(equipment) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	item := equipment[idx-1]
+	originalIdx := equipmentIndices[idx-1]
+
+	// Give to guard
+	guard.Inventory = append(guard.Inventory, item)
+
+	// Remove from player
+	removeItemFromInventory(&player.Inventory, originalIdx)
+
+	fmt.Printf("\n✅ Gave %s to %s\n", item.Name, guard.Name)
+}
+
+func takeItemFromGuard(guard *Guard, player *Character) {
+	if len(guard.Inventory) == 0 {
+		fmt.Println("\nGuard has no items to take!")
+		return
+	}
+
+	fmt.Println("\nSelect item to take from guard:")
+	for i, item := range guard.Inventory {
+		fmt.Printf("%d. %s (CP:%d, Rarity:%d)\n", i+1, item.Name, item.CP, item.Rarity)
+	}
+	fmt.Print("Choice (0=cancel): ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(guard.Inventory) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	item := guard.Inventory[idx-1]
+
+	// Give to player
+	player.Inventory = append(player.Inventory, item)
+
+	// Remove from guard
+	removeItemFromInventory(&guard.Inventory, idx-1)
+
+	fmt.Printf("\n✅ Took %s from %s\n", item.Name, guard.Name)
+}
+
+func healGuard(guard *Guard, player *Character) {
+	if !guard.Injured && guard.HitpointsRemaining >= guard.HitPoints {
+		fmt.Println("\nGuard is already at full health!")
+		return
+	}
+
+	// Find a health potion
+	potionIdx := -1
+	for i, item := range player.Inventory {
+		if item.ItemType == "consumable" && item.Consumable.EffectType == "heal" {
+			potionIdx = i
+			break
+		}
+	}
+
+	if potionIdx == -1 {
+		fmt.Println("\nYou don't have any health potions!")
+		return
+	}
+
+	potion := player.Inventory[potionIdx]
+	healAmount := potion.Consumable.Value
+
+	// Heal guard
+	guard.HitpointsRemaining += healAmount
+	if guard.HitpointsRemaining > guard.HitPoints {
+		guard.HitpointsRemaining = guard.HitPoints
+	}
+
+	// Clear injury status if fully healed
+	if guard.HitpointsRemaining >= guard.HitPoints {
+		guard.Injured = false
+		guard.RecoveryTime = 0
+	}
+
+	// Remove potion from player
+	removeItemFromInventory(&player.Inventory, potionIdx)
+
+	fmt.Printf("\n✅ Used %s on %s\n", potion.Name, guard.Name)
+	fmt.Printf("   %s healed for %d HP! (%d/%d)\n", guard.Name, healAmount, guard.HitpointsRemaining, guard.HitPoints)
+
+	if !guard.Injured {
+		fmt.Println("   Guard is now fully recovered!")
+	}
+}
+
+func viewVillagers(village *Village) {
+	fmt.Println("\n============================================================")
+	fmt.Println("👥 VILLAGERS")
+	fmt.Println("============================================================")
+
+	if len(village.Villagers) == 0 {
+		fmt.Println("No villagers yet. Rescue them during hunts!")
+		return
+	}
+
+	harvesters := []Villager{}
+	guards := []Villager{}
+
+	for _, v := range village.Villagers {
+		if v.Role == "harvester" {
+			harvesters = append(harvesters, v)
+		} else {
+			guards = append(guards, v)
+		}
+	}
+
+	if len(harvesters) > 0 {
+		fmt.Println("\n🔨 HARVESTERS:")
+		for i, v := range harvesters {
+			taskInfo := "Idle"
+			if v.HarvestType != "" {
+				taskInfo = "Harvesting " + v.HarvestType + " (+" + fmt.Sprint(v.Efficiency+(v.Level/2)) + "/visit)"
+			}
+			fmt.Printf("  %d. %s (Lv%d) - %s\n", i+1, v.Name, v.Level, taskInfo)
+		}
+	}
+
+	if len(guards) > 0 {
+		fmt.Println("\n🛡️  GUARDS:")
+		for i, v := range guards {
+			fmt.Printf("  %d. %s (Lv%d) - Efficiency: %d\n", i+1, v.Name, v.Level, v.Efficiency)
+		}
+	}
+
+	fmt.Println("============================================================")
+}
+
+func assignVillagerTask(village *Village, player *Character) {
+	harvesters := []int{}
+	for i, v := range village.Villagers {
+		if v.Role == "harvester" {
+			harvesters = append(harvesters, i)
+		}
+	}
+
+	if len(harvesters) == 0 {
+		fmt.Println("\nNo harvesters available!")
+		return
+	}
+
+	fmt.Println("\n============================================================")
+	fmt.Println("🔨 ASSIGN HARVESTER TASK")
+	fmt.Println("============================================================")
+	fmt.Println("\nAvailable Harvesters:")
+	for i, idx := range harvesters {
+		v := village.Villagers[idx]
+		taskInfo := "Idle"
+		if v.HarvestType != "" {
+			taskInfo = "Currently: " + v.HarvestType
+		}
+		fmt.Printf("%d. %s (Lv%d, Efficiency %d) - %s\n", i+1, v.Name, v.Level, v.Efficiency, taskInfo)
+	}
+
+	fmt.Print("\nSelect harvester (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(harvesters) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	villagerIdx := harvesters[idx-1]
+
+	fmt.Println("\nAssign to resource:")
+	for i, res := range resourceTypes {
+		fmt.Printf("%d = %s\n", i+1, res)
+	}
+	fmt.Print("Choice (0=cancel): ")
+	scanner.Scan()
+	resChoice := scanner.Text()
+	resIdx, err := strconv.Atoi(resChoice)
+
+	if err != nil || resIdx < 0 || resIdx > len(resourceTypes) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if resIdx == 0 {
+		return
+	}
+
+	village.Villagers[villagerIdx].HarvestType = resourceTypes[resIdx-1]
+	village.Villagers[villagerIdx].AssignedTask = "harvesting"
+
+	fmt.Printf("\n✅ %s is now harvesting %s!\n",
+		village.Villagers[villagerIdx].Name,
+		resourceTypes[resIdx-1])
+
+	// Grant village XP for task assignment
+	village.Experience += 10
+	fmt.Println("+10 Village XP")
+}
+
+func hireGuardMenu(village *Village, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("⚔️  GUARD RECRUITMENT")
+	fmt.Println("============================================================")
+
+	// Get player's gold
+	goldResource, hasGold := player.ResourceStorageMap["Gold"]
+	if !hasGold {
+		goldResource = Resource{Name: "Gold", Stock: 0, RollModifier: 0}
+	}
+
+	fmt.Printf("Your Gold: %d\n\n", goldResource.Stock)
+
+	fmt.Println("Available Guards for Hire:")
+
+	// Generate 3 guards at different levels
+	availableGuards := []Guard{
+		generateGuard(village.Level),
+		generateGuard(village.Level + 2),
+		generateGuard(village.Level + 5),
+	}
+
+	for i, guard := range availableGuards {
+		fmt.Printf("\n%d. %s (Level %d)\n", i+1, guard.Name, guard.Level)
+		fmt.Printf("   HP: %d | Attack Rolls: %d | Defense Rolls: %d\n",
+			guard.HitPoints, guard.AttackRolls, guard.DefenseRolls)
+		fmt.Printf("   Equipment Bonus: +%d ATK, +%d DEF, +%d HP\n",
+			guard.StatsMod.AttackMod, guard.StatsMod.DefenseMod, guard.StatsMod.HitPointMod)
+		fmt.Printf("   Starting Equipment: %d items\n", len(guard.EquipmentMap))
+		fmt.Printf("   Cost: %d Gold\n", guard.Cost)
+	}
+
+	fmt.Print("\nHire guard (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(availableGuards) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	selectedGuard := availableGuards[idx-1]
+
+	if goldResource.Stock < selectedGuard.Cost {
+		fmt.Printf("\n❌ Not enough gold! Need %d, have %d\n", selectedGuard.Cost, goldResource.Stock)
+		return
+	}
+
+	// Deduct gold
+	goldResource.Stock -= selectedGuard.Cost
+	player.ResourceStorageMap["Gold"] = goldResource
+
+	// Add guard to village
+	selectedGuard.Hired = true
+	village.ActiveGuards = append(village.ActiveGuards, selectedGuard)
+
+	fmt.Printf("\n✅ Hired %s for %d Gold!\n", selectedGuard.Name, selectedGuard.Cost)
+	fmt.Printf("They will assist in guardian and boss fights!\n")
+
+	// Grant village XP
+	village.Experience += 50
+	fmt.Println("+50 Village XP")
+}
+
+func craftingMenu(village *Village, player *Character) {
+	if len(village.UnlockedCrafting) == 0 {
+		fmt.Println("\n❌ No crafting unlocked yet!")
+		fmt.Println("Level up your village to unlock crafting:")
+		fmt.Println("  Level 3  → Potion Crafting")
+		fmt.Println("  Level 5  → Armor Crafting")
+		fmt.Println("  Level 7  → Weapon Crafting")
+		fmt.Println("  Level 10 → Skill Upgrades")
+		fmt.Println("  Level 10 → Skill Scroll Crafting")
+		return
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("⚒️  CRAFTING MENU")
+		fmt.Println("============================================================")
+		fmt.Println("\nAvailable Crafting:")
+
+		optionNum := 1
+		optionMap := make(map[int]string)
+
+		if contains(village.UnlockedCrafting, "potions") {
+			fmt.Printf("%d = Potion Crafting\n", optionNum)
+			optionMap[optionNum] = "potions"
+			optionNum++
+		}
+		if contains(village.UnlockedCrafting, "armor") {
+			fmt.Printf("%d = Armor Crafting\n", optionNum)
+			optionMap[optionNum] = "armor"
+			optionNum++
+		}
+		if contains(village.UnlockedCrafting, "weapons") {
+			fmt.Printf("%d = Weapon Crafting\n", optionNum)
+			optionMap[optionNum] = "weapons"
+			optionNum++
+		}
+		if contains(village.UnlockedCrafting, "skill_upgrades") {
+			fmt.Printf("%d = Skill Upgrades\n", optionNum)
+			optionMap[optionNum] = "skill_upgrades"
+			optionNum++
+		}
+		if contains(village.UnlockedCrafting, "skill_scrolls") {
+			fmt.Printf("%d = Skill Scroll Crafting\n", optionNum)
+			optionMap[optionNum] = "skill_scrolls"
+			optionNum++
+		}
+
+		fmt.Println("0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+		idx, err := strconv.Atoi(choice)
+
+		if err != nil || idx < 0 || idx >= optionNum {
+			fmt.Println("Invalid choice!")
+			continue
+		}
+		if idx == 0 {
+			return
+		}
+
+		craftType := optionMap[idx]
+		switch craftType {
+		case "potions":
+			craftPotion(village, player)
+		case "armor":
+			craftArmor(village, player)
+		case "weapons":
+			craftWeapon(village, player)
+		case "skill_upgrades":
+			upgradeSkillMenu(village, player)
+		case "skill_scrolls":
+			craftSkillScrolls(village, player)
+		}
+	}
+}
+
+func craftPotion(village *Village, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("🧪 POTION CRAFTING")
+	fmt.Println("============================================================")
+
+	potionRecipes := []struct {
+		name      string
+		size      string
+		ironCost  int
+		goldCost  int
+	}{
+		{"Small Health Potion", "small", 5, 10},
+		{"Medium Health Potion", "medium", 10, 20},
+		{"Large Health Potion", "large", 20, 40},
+	}
+
+	fmt.Println("\nAvailable Recipes:")
+	for i, recipe := range potionRecipes {
+		fmt.Printf("%d. %s (Iron: %d, Gold: %d)\n",
+			i+1, recipe.name, recipe.ironCost, recipe.goldCost)
+	}
+
+	fmt.Print("\nCraft (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(potionRecipes) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	recipe := potionRecipes[idx-1]
+
+	// Check resources
+	iron := player.ResourceStorageMap["Iron"]
+	gold := player.ResourceStorageMap["Gold"]
+
+	if iron.Stock < recipe.ironCost {
+		fmt.Printf("❌ Not enough Iron! Need %d, have %d\n", recipe.ironCost, iron.Stock)
+		return
+	}
+	if gold.Stock < recipe.goldCost {
+		fmt.Printf("❌ Not enough Gold! Need %d, have %d\n", recipe.goldCost, gold.Stock)
+		return
+	}
+
+	// Deduct resources
+	iron.Stock -= recipe.ironCost
+	gold.Stock -= recipe.goldCost
+	player.ResourceStorageMap["Iron"] = iron
+	player.ResourceStorageMap["Gold"] = gold
+
+	// Create potion
+	potion := createHealthPotion(recipe.size)
+	player.Inventory = append(player.Inventory, potion)
+
+	fmt.Printf("\n✅ Crafted %s!\n", recipe.name)
+
+	// Grant village XP
+	village.Experience += 20
+	fmt.Println("+20 Village XP")
+}
+
+func craftArmor(village *Village, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("🛡️  ARMOR CRAFTING")
+		fmt.Println("============================================================")
+
+		fmt.Println("\nAvailable Recipes:")
+		fmt.Println("\n--- STANDARD ARMOR ---")
+		fmt.Println("1. Enhanced Armor (Iron: 30, Stone: 20)")
+		fmt.Println("   → Random armor, Rarity 3-5, Defense focus")
+
+		fmt.Println("\n--- BEAST MATERIAL ARMOR ---")
+		fmt.Println("2. Beast Skin Armor (Iron: 20, Beast Skin: 15)")
+		fmt.Println("   → Light armor, Rarity 4-6, Fire resistance")
+
+		fmt.Println("3. Bone Plate Armor (Iron: 25, Beast Bone: 12, Stone: 15)")
+		fmt.Println("   → Heavy armor, Rarity 5-7, High defense")
+
+		fmt.Println("4. Tough Hide Vest (Tough Hide: 10, Beast Bone: 8)")
+		fmt.Println("   → Medium armor, Rarity 4-6, Physical resistance")
+
+		fmt.Println("5. Ore Fragment Mail (Ore Fragment: 20, Iron: 15)")
+		fmt.Println("   → Magic armor, Rarity 5-7, Lightning resistance")
+
+		fmt.Println("6. Fang-Studded Armor (Sharp Fang: 15, Beast Skin: 10, Iron: 20)")
+		fmt.Println("   → Spiked armor, Rarity 6-8, Counter-damage bonus")
+
+		fmt.Println("7. Claw Guard Armor (Monster Claw: 12, Tough Hide: 8, Iron: 15)")
+		fmt.Println("   → Elite armor, Rarity 6-8, Ice resistance")
+
+		fmt.Println("\n0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			// Standard armor
+			iron := player.ResourceStorageMap["Iron"]
+			stone := player.ResourceStorageMap["Stone"]
+
+			if iron.Stock < 30 {
+				fmt.Printf("❌ Not enough Iron! Need 30, have %d\n", iron.Stock)
+				continue
+			}
+			if stone.Stock < 20 {
+				fmt.Printf("❌ Not enough Stone! Need 20, have %d\n", stone.Stock)
+				continue
+			}
+
+			iron.Stock -= 30
+			stone.Stock -= 20
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Stone"] = stone
+
+			rarity := 3 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 2
+			armor.StatsMod.HitPointMod += rarity
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted %s (Rarity %d)!\n", armor.Name, armor.Rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | CP: %d\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod, armor.CP)
+
+			village.Experience += 40
+			fmt.Println("+40 Village XP")
+
+		case "2":
+			// Beast Skin Armor
+			iron := player.ResourceStorageMap["Iron"]
+			beastSkin := player.ResourceStorageMap["Beast Skin"]
+
+			if iron.Stock < 20 || beastSkin.Stock < 15 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				fmt.Printf("   Need: Iron 20 (have %d), Beast Skin 15 (have %d)\n", iron.Stock, beastSkin.Stock)
+				continue
+			}
+
+			iron.Stock -= 20
+			beastSkin.Stock -= 15
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Beast Skin"] = beastSkin
+
+			rarity := 4 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 2
+			armor.StatsMod.HitPointMod += rarity + 3
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Beast Skin Armor (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Fire Resistance\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod)
+
+			village.Experience += 50
+			fmt.Println("+50 Village XP")
+
+		case "3":
+			// Bone Plate Armor
+			iron := player.ResourceStorageMap["Iron"]
+			beastBone := player.ResourceStorageMap["Beast Bone"]
+			stone := player.ResourceStorageMap["Stone"]
+
+			if iron.Stock < 25 || beastBone.Stock < 12 || stone.Stock < 15 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			iron.Stock -= 25
+			beastBone.Stock -= 12
+			stone.Stock -= 15
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Beast Bone"] = beastBone
+			player.ResourceStorageMap["Stone"] = stone
+
+			rarity := 5 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 3
+			armor.StatsMod.HitPointMod += rarity * 2
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Bone Plate Armor (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Heavy Armor\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod)
+
+			village.Experience += 60
+			fmt.Println("+60 Village XP")
+
+		case "4":
+			// Tough Hide Vest
+			toughHide := player.ResourceStorageMap["Tough Hide"]
+			beastBone := player.ResourceStorageMap["Beast Bone"]
+
+			if toughHide.Stock < 10 || beastBone.Stock < 8 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			toughHide.Stock -= 10
+			beastBone.Stock -= 8
+			player.ResourceStorageMap["Tough Hide"] = toughHide
+			player.ResourceStorageMap["Beast Bone"] = beastBone
+
+			rarity := 4 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 2 + 2
+			armor.StatsMod.HitPointMod += rarity + 4
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Tough Hide Vest (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Physical Resistance\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod)
+
+			village.Experience += 50
+			fmt.Println("+50 Village XP")
+
+		case "5":
+			// Ore Fragment Mail
+			oreFragment := player.ResourceStorageMap["Ore Fragment"]
+			iron := player.ResourceStorageMap["Iron"]
+
+			if oreFragment.Stock < 20 || iron.Stock < 15 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			oreFragment.Stock -= 20
+			iron.Stock -= 15
+			player.ResourceStorageMap["Ore Fragment"] = oreFragment
+			player.ResourceStorageMap["Iron"] = iron
+
+			rarity := 5 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 2 + 3
+			armor.StatsMod.HitPointMod += rarity
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Ore Fragment Mail (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Lightning Resistance\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod)
+
+			village.Experience += 60
+			fmt.Println("+60 Village XP")
+
+		case "6":
+			// Fang-Studded Armor
+			sharpFang := player.ResourceStorageMap["Sharp Fang"]
+			beastSkin := player.ResourceStorageMap["Beast Skin"]
+			iron := player.ResourceStorageMap["Iron"]
+
+			if sharpFang.Stock < 15 || beastSkin.Stock < 10 || iron.Stock < 20 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			sharpFang.Stock -= 15
+			beastSkin.Stock -= 10
+			iron.Stock -= 20
+			player.ResourceStorageMap["Sharp Fang"] = sharpFang
+			player.ResourceStorageMap["Beast Skin"] = beastSkin
+			player.ResourceStorageMap["Iron"] = iron
+
+			rarity := 6 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 2 + 5
+			armor.StatsMod.HitPointMod += rarity * 2
+			armor.StatsMod.AttackMod += rarity // Spike bonus
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Fang-Studded Armor (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Attack: +%d (Counter-damage)\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod, armor.StatsMod.AttackMod)
+
+			village.Experience += 70
+			fmt.Println("+70 Village XP")
+
+		case "7":
+			// Claw Guard Armor
+			monsterClaw := player.ResourceStorageMap["Monster Claw"]
+			toughHide := player.ResourceStorageMap["Tough Hide"]
+			iron := player.ResourceStorageMap["Iron"]
+
+			if monsterClaw.Stock < 12 || toughHide.Stock < 8 || iron.Stock < 15 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			monsterClaw.Stock -= 12
+			toughHide.Stock -= 8
+			iron.Stock -= 15
+			player.ResourceStorageMap["Monster Claw"] = monsterClaw
+			player.ResourceStorageMap["Tough Hide"] = toughHide
+			player.ResourceStorageMap["Iron"] = iron
+
+			rarity := 6 + rand.Intn(3)
+			armor := generateItem(rarity)
+			armor.StatsMod.DefenseMod += rarity * 3 + 2
+			armor.StatsMod.HitPointMod += rarity * 2 + 3
+			armor.CP = armor.StatsMod.AttackMod + armor.StatsMod.DefenseMod + armor.StatsMod.HitPointMod
+
+			equipBestItem(armor, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Claw Guard Armor (Rarity %d)!\n", rarity)
+			fmt.Printf("   Defense: +%d | HP: +%d | Ice Resistance (Elite)\n",
+				armor.StatsMod.DefenseMod, armor.StatsMod.HitPointMod)
+
+			village.Experience += 70
+			fmt.Println("+70 Village XP")
+
+		case "0":
+			return
+
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+func craftWeapon(village *Village, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("⚔️  WEAPON CRAFTING")
+		fmt.Println("============================================================")
+
+		fmt.Println("\nAvailable Recipes:")
+		fmt.Println("\n--- STANDARD WEAPONS ---")
+		fmt.Println("1. Enhanced Weapon (Iron: 40, Gold: 30)")
+		fmt.Println("   → Random weapon, Rarity 4-6, Attack focus")
+
+		fmt.Println("\n--- BEAST MATERIAL WEAPONS ---")
+		fmt.Println("2. Beast Claw Blade (Iron: 25, Monster Claw: 15, Sharp Fang: 10)")
+		fmt.Println("   → Slashing weapon, Rarity 5-7, High attack + bleed bonus")
+
+		fmt.Println("3. Bone Crusher Mace (Iron: 30, Beast Bone: 20, Stone: 15)")
+		fmt.Println("   → Crushing weapon, Rarity 5-7, Attack + stun chance")
+
+		fmt.Println("4. Hide-Wrapped Axe (Iron: 20, Tough Hide: 12, Lumber: 25)")
+		fmt.Println("   → Balanced weapon, Rarity 4-6, Attack + HP bonus")
+
+		fmt.Println("5. Ore Fragment Sword (Iron: 35, Ore Fragment: 25, Gold: 20)")
+		fmt.Println("   → Magical weapon, Rarity 6-8, High attack + elemental damage")
+
+		fmt.Println("6. Fang Spear (Sharp Fang: 18, Beast Bone: 15, Iron: 20)")
+		fmt.Println("   → Piercing weapon, Rarity 5-7, Attack + critical bonus")
+
+		fmt.Println("7. Composite War Hammer (Beast Skin: 10, Ore Fragment: 15, Iron: 25, Stone: 20)")
+		fmt.Println("   → Elite weapon, Rarity 6-8, Massive attack + durability")
+
+		fmt.Println("\n0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			// Standard Enhanced Weapon
+			iron := player.ResourceStorageMap["Iron"]
+			gold := player.ResourceStorageMap["Gold"]
+
+			if iron.Stock < 40 {
+				fmt.Printf("❌ Not enough Iron! Need 40, have %d\n", iron.Stock)
+				continue
+			}
+			if gold.Stock < 30 {
+				fmt.Printf("❌ Not enough Gold! Need 30, have %d\n", gold.Stock)
+				continue
+			}
+
+			iron.Stock -= 40
+			gold.Stock -= 30
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Gold"] = gold
+
+			rarity := 4 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 3
+			weapon.StatsMod.HitPointMod += rarity / 2
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Enhanced %s (Rarity %d)!\n", weapon.Name, rarity)
+			fmt.Printf("   Attack: +%d | HP: +%d | CP: %d\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.HitPointMod, weapon.CP)
+
+			village.Experience += 50
+			fmt.Println("+50 Village XP")
+
+		case "2":
+			// Beast Claw Blade
+			iron := player.ResourceStorageMap["Iron"]
+			monsterClaw := player.ResourceStorageMap["Monster Claw"]
+			sharpFang := player.ResourceStorageMap["Sharp Fang"]
+
+			if iron.Stock < 25 || monsterClaw.Stock < 15 || sharpFang.Stock < 10 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				fmt.Printf("   Need: Iron 25 (have %d), Monster Claw 15 (have %d), Sharp Fang 10 (have %d)\n",
+					iron.Stock, monsterClaw.Stock, sharpFang.Stock)
+				continue
+			}
+
+			iron.Stock -= 25
+			monsterClaw.Stock -= 15
+			sharpFang.Stock -= 10
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Monster Claw"] = monsterClaw
+			player.ResourceStorageMap["Sharp Fang"] = sharpFang
+
+			rarity := 5 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 4
+			weapon.StatsMod.HitPointMod += rarity
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Beast Claw Blade (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | HP: +%d | Bleed Bonus\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 60
+			fmt.Println("+60 Village XP")
+
+		case "3":
+			// Bone Crusher Mace
+			iron := player.ResourceStorageMap["Iron"]
+			beastBone := player.ResourceStorageMap["Beast Bone"]
+			stone := player.ResourceStorageMap["Stone"]
+
+			if iron.Stock < 30 || beastBone.Stock < 20 || stone.Stock < 15 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			iron.Stock -= 30
+			beastBone.Stock -= 20
+			stone.Stock -= 15
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Beast Bone"] = beastBone
+			player.ResourceStorageMap["Stone"] = stone
+
+			rarity := 5 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 3 + 5
+			weapon.StatsMod.DefenseMod += rarity
+			weapon.StatsMod.HitPointMod += rarity + 2
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Bone Crusher Mace (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | Defense: +%d | HP: +%d | Stun Chance\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.DefenseMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 60
+			fmt.Println("+60 Village XP")
+
+		case "4":
+			// Hide-Wrapped Axe
+			iron := player.ResourceStorageMap["Iron"]
+			toughHide := player.ResourceStorageMap["Tough Hide"]
+			lumber := player.ResourceStorageMap["Lumber"]
+
+			if iron.Stock < 20 || toughHide.Stock < 12 || lumber.Stock < 25 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			iron.Stock -= 20
+			toughHide.Stock -= 12
+			lumber.Stock -= 25
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Tough Hide"] = toughHide
+			player.ResourceStorageMap["Lumber"] = lumber
+
+			rarity := 4 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 3 + 3
+			weapon.StatsMod.HitPointMod += rarity * 2 + 5
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Hide-Wrapped Axe (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | HP: +%d | Balanced\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 55
+			fmt.Println("+55 Village XP")
+
+		case "5":
+			// Ore Fragment Sword
+			iron := player.ResourceStorageMap["Iron"]
+			oreFragment := player.ResourceStorageMap["Ore Fragment"]
+			gold := player.ResourceStorageMap["Gold"]
+
+			if iron.Stock < 35 || oreFragment.Stock < 25 || gold.Stock < 20 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			iron.Stock -= 35
+			oreFragment.Stock -= 25
+			gold.Stock -= 20
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Ore Fragment"] = oreFragment
+			player.ResourceStorageMap["Gold"] = gold
+
+			rarity := 6 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 4 + 5
+			weapon.StatsMod.HitPointMod += rarity + 3
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Ore Fragment Sword (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | HP: +%d | Elemental Damage (Magical)\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 70
+			fmt.Println("+70 Village XP")
+
+		case "6":
+			// Fang Spear
+			sharpFang := player.ResourceStorageMap["Sharp Fang"]
+			beastBone := player.ResourceStorageMap["Beast Bone"]
+			iron := player.ResourceStorageMap["Iron"]
+
+			if sharpFang.Stock < 18 || beastBone.Stock < 15 || iron.Stock < 20 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			sharpFang.Stock -= 18
+			beastBone.Stock -= 15
+			iron.Stock -= 20
+			player.ResourceStorageMap["Sharp Fang"] = sharpFang
+			player.ResourceStorageMap["Beast Bone"] = beastBone
+			player.ResourceStorageMap["Iron"] = iron
+
+			rarity := 5 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 3 + 7
+			weapon.StatsMod.HitPointMod += rarity
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Fang Spear (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | HP: +%d | Critical Bonus (Piercing)\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 65
+			fmt.Println("+65 Village XP")
+
+		case "7":
+			// Composite War Hammer
+			beastSkin := player.ResourceStorageMap["Beast Skin"]
+			oreFragment := player.ResourceStorageMap["Ore Fragment"]
+			iron := player.ResourceStorageMap["Iron"]
+			stone := player.ResourceStorageMap["Stone"]
+
+			if beastSkin.Stock < 10 || oreFragment.Stock < 15 || iron.Stock < 25 || stone.Stock < 20 {
+				fmt.Printf("❌ Insufficient materials!\n")
+				continue
+			}
+
+			beastSkin.Stock -= 10
+			oreFragment.Stock -= 15
+			iron.Stock -= 25
+			stone.Stock -= 20
+			player.ResourceStorageMap["Beast Skin"] = beastSkin
+			player.ResourceStorageMap["Ore Fragment"] = oreFragment
+			player.ResourceStorageMap["Iron"] = iron
+			player.ResourceStorageMap["Stone"] = stone
+
+			rarity := 6 + rand.Intn(3)
+			weapon := generateItem(rarity)
+			weapon.StatsMod.AttackMod += rarity * 5 + 3
+			weapon.StatsMod.DefenseMod += rarity + 2
+			weapon.StatsMod.HitPointMod += rarity * 2 + 5
+			weapon.CP = weapon.StatsMod.AttackMod + weapon.StatsMod.DefenseMod + weapon.StatsMod.HitPointMod
+
+			equipBestItem(weapon, &player.EquipmentMap, &player.Inventory)
+			fmt.Printf("\n✅ Crafted Composite War Hammer (Rarity %d)!\n", rarity)
+			fmt.Printf("   Attack: +%d | Defense: +%d | HP: +%d | Elite (Durability)\n",
+				weapon.StatsMod.AttackMod, weapon.StatsMod.DefenseMod, weapon.StatsMod.HitPointMod)
+
+			village.Experience += 80
+			fmt.Println("+80 Village XP")
+
+		case "0":
+			return
+
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+func upgradeSkillMenu(village *Village, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("✨ SKILL UPGRADES")
+	fmt.Println("============================================================")
+
+	if len(player.LearnedSkills) == 0 {
+		fmt.Println("\nNo skills to upgrade!")
+		return
+	}
+
+	fmt.Println("\nYour Skills:")
+	for i, skill := range player.LearnedSkills {
+		fmt.Printf("%d. %s (Damage: %d, ManaCost: %d, StaminaCost: %d)\n",
+			i+1, skill.Name, skill.Damage, skill.ManaCost, skill.StaminaCost)
+	}
+
+	fmt.Print("\nUpgrade skill (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(player.LearnedSkills) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	skillIdx := idx - 1
+	skill := &player.LearnedSkills[skillIdx]
+
+	fmt.Printf("\nUpgrade %s\n", skill.Name)
+	fmt.Println("Cost: Gold: 50, Iron: 25")
+	fmt.Println("Effect: +5 Damage (or +5 Healing), -2 Resource Cost")
+
+	fmt.Print("\nUpgrade? (y/n): ")
+	scanner.Scan()
+	confirm := scanner.Text()
+
+	if confirm != "y" && confirm != "Y" {
+		return
+	}
+
+	// Check resources
+	iron := player.ResourceStorageMap["Iron"]
+	gold := player.ResourceStorageMap["Gold"]
+
+	if iron.Stock < 25 {
+		fmt.Printf("❌ Not enough Iron! Need 25, have %d\n", iron.Stock)
+		return
+	}
+	if gold.Stock < 50 {
+		fmt.Printf("❌ Not enough Gold! Need 50, have %d\n", gold.Stock)
+		return
+	}
+
+	// Deduct resources
+	iron.Stock -= 25
+	gold.Stock -= 50
+	player.ResourceStorageMap["Iron"] = iron
+	player.ResourceStorageMap["Gold"] = gold
+
+	// Upgrade skill
+	if skill.Damage > 0 {
+		skill.Damage += 5
+		fmt.Printf("✅ %s damage increased by 5! (Now: %d)\n", skill.Name, skill.Damage)
+	} else if skill.Damage < 0 {
+		skill.Damage -= 5
+		fmt.Printf("✅ %s healing increased by 5! (Now: %d)\n", skill.Name, -skill.Damage)
+	}
+
+	if skill.ManaCost > 2 {
+		skill.ManaCost -= 2
+		fmt.Printf("✅ Mana cost reduced by 2! (Now: %d)\n", skill.ManaCost)
+	}
+	if skill.StaminaCost > 2 {
+		skill.StaminaCost -= 2
+		fmt.Printf("✅ Stamina cost reduced by 2! (Now: %d)\n", skill.StaminaCost)
+	}
+
+	// Grant village XP
+	village.Experience += 60
+	fmt.Println("+60 Village XP")
+}
+
+func craftSkillScrolls(village *Village, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("📜 SKILL SCROLL CRAFTING")
+		fmt.Println("============================================================")
+
+		fmt.Println("\nCraft skill scrolls using beast materials!")
+		fmt.Println("Learn skills without defeating Skill Guardians")
+
+		fmt.Println("Available Skill Scrolls:")
+		fmt.Println("\n--- OFFENSIVE SKILLS ---")
+		fmt.Println("1. Fireball Scroll (Ore Fragment: 15, Sharp Fang: 10, Gold: 30)")
+		fmt.Println("   → Fire damage + burn effect")
+
+		fmt.Println("2. Ice Shard Scroll (Beast Skin: 12, Ore Fragment: 10, Iron: 20)")
+		fmt.Println("   → Ice damage")
+
+		fmt.Println("3. Lightning Bolt Scroll (Ore Fragment: 20, Monster Claw: 15, Gold: 40)")
+		fmt.Println("   → Lightning damage + stun (EXPENSIVE)")
+
+		fmt.Println("4. Power Strike Scroll (Beast Bone: 10, Iron: 15)")
+		fmt.Println("   → Physical stamina attack")
+
+		fmt.Println("5. Poison Blade Scroll (Beast Skin: 10, Sharp Fang: 12, Iron: 15)")
+		fmt.Println("   → Poison damage over time")
+
+		fmt.Println("\n--- SUPPORT SKILLS ---")
+		fmt.Println("6. Heal Scroll (Beast Skin: 15, Beast Bone: 10, Gold: 25)")
+		fmt.Println("   → Restore HP")
+
+		fmt.Println("7. Regeneration Scroll (Ore Fragment: 12, Beast Skin: 15, Gold: 30)")
+		fmt.Println("   → Heal over time")
+
+		fmt.Println("8. Shield Wall Scroll (Tough Hide: 15, Beast Bone: 12, Stone: 20)")
+		fmt.Println("   → Defense buff")
+
+		fmt.Println("9. Battle Cry Scroll (Sharp Fang: 15, Beast Bone: 10, Iron: 20)")
+		fmt.Println("   → Attack buff")
+
+		fmt.Println("\n--- UTILITY SKILLS ---")
+		fmt.Println("10. Tracking Scroll (Beast Bone: 8, Beast Skin: 8)")
+		fmt.Println("    → Choose targets in combat")
+
+		fmt.Println("\n0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		var skillToLearn Skill
+		var materialsNeeded map[string]int
+		var villageXP int
+
+		switch choice {
+		case "1":
+			// Fireball
+			skillToLearn = availableSkills[0] // Fireball
+			materialsNeeded = map[string]int{
+				"Ore Fragment": 15,
+				"Sharp Fang":   10,
+				"Gold":         30,
+			}
+			villageXP = 100
+
+		case "2":
+			// Ice Shard
+			skillToLearn = availableSkills[1]
+			materialsNeeded = map[string]int{
+				"Beast Skin":   12,
+				"Ore Fragment": 10,
+				"Iron":         20,
+			}
+			villageXP = 90
+
+		case "3":
+			// Lightning Bolt
+			skillToLearn = availableSkills[2]
+			materialsNeeded = map[string]int{
+				"Ore Fragment": 20,
+				"Monster Claw": 15,
+				"Gold":         40,
+			}
+			villageXP = 120
+
+		case "4":
+			// Power Strike
+			skillToLearn = availableSkills[4]
+			materialsNeeded = map[string]int{
+				"Beast Bone": 10,
+				"Iron":       15,
+			}
+			villageXP = 70
+
+		case "5":
+			// Poison Blade
+			skillToLearn = availableSkills[7]
+			materialsNeeded = map[string]int{
+				"Beast Skin": 10,
+				"Sharp Fang": 12,
+				"Iron":       15,
+			}
+			villageXP = 85
+
+		case "6":
+			// Heal
+			skillToLearn = availableSkills[3]
+			materialsNeeded = map[string]int{
+				"Beast Skin": 15,
+				"Beast Bone": 10,
+				"Gold":       25,
+			}
+			villageXP = 95
+
+		case "7":
+			// Regeneration
+			skillToLearn = availableSkills[8]
+			materialsNeeded = map[string]int{
+				"Ore Fragment": 12,
+				"Beast Skin":   15,
+				"Gold":         30,
+			}
+			villageXP = 105
+
+		case "8":
+			// Shield Wall
+			skillToLearn = availableSkills[5]
+			materialsNeeded = map[string]int{
+				"Tough Hide": 15,
+				"Beast Bone": 12,
+				"Stone":      20,
+			}
+			villageXP = 90
+
+		case "9":
+			// Battle Cry
+			skillToLearn = availableSkills[6]
+			materialsNeeded = map[string]int{
+				"Sharp Fang": 15,
+				"Beast Bone": 10,
+				"Iron":       20,
+			}
+			villageXP = 85
+
+		case "10":
+			// Tracking
+			skillToLearn = availableSkills[9]
+			materialsNeeded = map[string]int{
+				"Beast Bone": 8,
+				"Beast Skin": 8,
+			}
+			villageXP = 60
+
+		case "0":
+			return
+
+		default:
+			fmt.Println("Invalid choice")
+			continue
+		}
+
+		// Check if player already has this skill
+		hasSkill := false
+		for _, skill := range player.LearnedSkills {
+			if skill.Name == skillToLearn.Name {
+				hasSkill = true
+				break
+			}
+		}
+
+		if hasSkill {
+			fmt.Printf("\n❌ You already know %s!\n", skillToLearn.Name)
+			continue
+		}
+
+		// Check if player has all required materials
+		canCraft := true
+		for material, qty := range materialsNeeded {
+			resource, exists := player.ResourceStorageMap[material]
+			if !exists || resource.Stock < qty {
+				canCraft = false
+				have := 0
+				if exists {
+					have = resource.Stock
+				}
+				fmt.Printf("❌ Not enough %s! Need %d, have %d\n", material, qty, have)
+			}
+		}
+
+		if !canCraft {
+			continue
+		}
+
+		// Deduct materials
+		for material, qty := range materialsNeeded {
+			resource := player.ResourceStorageMap[material]
+			resource.Stock -= qty
+			player.ResourceStorageMap[material] = resource
+		}
+
+		// Learn the skill
+		player.LearnedSkills = append(player.LearnedSkills, skillToLearn)
+
+		fmt.Printf("\n✅ Crafted %s Scroll!\n", skillToLearn.Name)
+		fmt.Printf("✨ You have learned %s! ✨\n", skillToLearn.Name)
+		fmt.Printf("   %s\n", skillToLearn.Description)
+
+		// Grant village XP
+		village.Experience += villageXP
+		fmt.Printf("+%d Village XP\n", villageXP)
+	}
+}
+
+func buildDefenseMenu(village *Village, player *Character) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Println("\n============================================================")
+		fmt.Println("🏰 BUILD DEFENSES & TRAPS")
+		fmt.Println("============================================================")
+		fmt.Println("\n1 = Build Walls/Towers")
+		fmt.Println("2 = Craft Traps")
+		fmt.Println("3 = View Current Defenses")
+		fmt.Println("0 = Back")
+		fmt.Print("Choice: ")
+
+		scanner.Scan()
+		choice := scanner.Text()
+
+		switch choice {
+		case "1":
+			buildWallsMenu(village, player)
+		case "2":
+			craftTrapsMenu(village, player)
+		case "3":
+			viewDefenses(village)
+		case "0":
+			return
+		default:
+			fmt.Println("Invalid choice")
+		}
+	}
+}
+
+func buildWallsMenu(village *Village, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("🏰 BUILD WALLS & TOWERS")
+	fmt.Println("============================================================")
+
+	defenseOptions := []struct {
+		name   string
+		lumber int
+		stone  int
+		iron   int
+		defense int
+		attack  int
+		dtype   string
+	}{
+		{"Wooden Wall", 50, 20, 0, 10, 0, "wall"},
+		{"Stone Wall", 30, 60, 10, 25, 0, "wall"},
+		{"Iron Wall", 20, 80, 40, 40, 0, "wall"},
+		{"Guard Tower", 40, 40, 30, 15, 20, "tower"},
+		{"Arrow Tower", 30, 50, 40, 10, 35, "tower"},
+		{"Iron Gate", 20, 50, 50, 30, 10, "wall"},
+	}
+
+	fmt.Println("\nAvailable Structures:")
+	for i, def := range defenseOptions {
+		fmt.Printf("%d. %s (Lumber:%d Stone:%d Iron:%d) → Defense:+%d Attack:+%d\n",
+			i+1, def.name, def.lumber, def.stone, def.iron, def.defense, def.attack)
+	}
+
+	fmt.Print("\nBuild (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(defenseOptions) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	selected := defenseOptions[idx-1]
+
+	// Check resources
+	lumber := player.ResourceStorageMap["Lumber"]
+	stone := player.ResourceStorageMap["Stone"]
+	iron := player.ResourceStorageMap["Iron"]
+
+	if lumber.Stock < selected.lumber {
+		fmt.Printf("❌ Not enough Lumber! Need %d, have %d\n", selected.lumber, lumber.Stock)
+		return
+	}
+	if stone.Stock < selected.stone {
+		fmt.Printf("❌ Not enough Stone! Need %d, have %d\n", selected.stone, stone.Stock)
+		return
+	}
+	if iron.Stock < selected.iron {
+		fmt.Printf("❌ Not enough Iron! Need %d, have %d\n", selected.iron, iron.Stock)
+		return
+	}
+
+	// Deduct resources
+	lumber.Stock -= selected.lumber
+	stone.Stock -= selected.stone
+	iron.Stock -= selected.iron
+	player.ResourceStorageMap["Lumber"] = lumber
+	player.ResourceStorageMap["Stone"] = stone
+	player.ResourceStorageMap["Iron"] = iron
+
+	// Add defense
+	newDefense := Defense{
+		Name:        selected.name,
+		Level:       1,
+		Defense:     selected.defense,
+		AttackPower: selected.attack,
+		Range:       10,
+		Built:       true,
+		Type:        selected.dtype,
+	}
+	village.Defenses = append(village.Defenses, newDefense)
+	village.DefenseLevel += 1
+
+	fmt.Printf("\n✅ Built %s!\n", selected.name)
+	fmt.Printf("Village Defense Level increased to %d\n", village.DefenseLevel)
+
+	// Grant village XP
+	village.Experience += 30
+	fmt.Println("+30 Village XP")
+}
+
+func craftTrapsMenu(village *Village, player *Character) {
+	fmt.Println("\n============================================================")
+	fmt.Println("⚠️  CRAFT TRAPS")
+	fmt.Println("============================================================")
+
+	trapOptions := []struct {
+		name        string
+		trapType    string
+		materials   map[string]int
+		damage      int
+		duration    int
+		triggerRate int
+	}{
+		{
+			name:     "Spike Trap",
+			trapType: "spike",
+			materials: map[string]int{
+				"Iron":       10,
+				"Beast Bone": 5,
+			},
+			damage:      15,
+			duration:    3,
+			triggerRate: 60,
+		},
+		{
+			name:     "Fire Trap",
+			trapType: "fire",
+			materials: map[string]int{
+				"Iron":        15,
+				"Ore Fragment": 8,
+				"Sharp Fang":  5,
+			},
+			damage:      25,
+			duration:    2,
+			triggerRate: 50,
+		},
+		{
+			name:     "Ice Trap",
+			trapType: "ice",
+			materials: map[string]int{
+				"Iron":         12,
+				"Ore Fragment": 10,
+				"Beast Skin":   8,
+			},
+			damage:      20,
+			duration:    3,
+			triggerRate: 55,
+		},
+		{
+			name:     "Poison Trap",
+			trapType: "poison",
+			materials: map[string]int{
+				"Beast Skin":   10,
+				"Sharp Fang":   8,
+				"Monster Claw": 5,
+			},
+			damage:      18,
+			duration:    4,
+			triggerRate: 65,
+		},
+		{
+			name:     "Barricade Trap",
+			trapType: "spike",
+			materials: map[string]int{
+				"Lumber":     30,
+				"Tough Hide": 6,
+				"Beast Bone": 8,
+			},
+			damage:      30,
+			duration:    2,
+			triggerRate: 70,
+		},
+	}
+
+	fmt.Println("\nAvailable Traps:")
+	for i, trap := range trapOptions {
+		fmt.Printf("\n%d. %s (Damage: %d, Duration: %d waves, Trigger: %d%%)\n",
+			i+1, trap.name, trap.damage, trap.duration, trap.triggerRate)
+		fmt.Print("   Costs: ")
+		first := true
+		for mat, qty := range trap.materials {
+			if !first {
+				fmt.Print(", ")
+			}
+			fmt.Printf("%s:%d", mat, qty)
+			first = false
+		}
+		fmt.Println()
+	}
+
+	fmt.Print("\nCraft (0=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := scanner.Text()
+	idx, err := strconv.Atoi(choice)
+
+	if err != nil || idx < 0 || idx > len(trapOptions) {
+		fmt.Println("Invalid choice!")
+		return
+	}
+	if idx == 0 {
+		return
+	}
+
+	selected := trapOptions[idx-1]
+
+	// Check if player has all required materials
+	for material, qty := range selected.materials {
+		resource, exists := player.ResourceStorageMap[material]
+		if !exists || resource.Stock < qty {
+			have := 0
+			if exists {
+				have = resource.Stock
+			}
+			fmt.Printf("❌ Not enough %s! Need %d, have %d\n", material, qty, have)
+			return
+		}
+	}
+
+	// Deduct materials
+	for material, qty := range selected.materials {
+		resource := player.ResourceStorageMap[material]
+		resource.Stock -= qty
+		player.ResourceStorageMap[material] = resource
+	}
+
+	// Create trap
+	newTrap := Trap{
+		Name:        selected.name,
+		Type:        selected.trapType,
+		Damage:      selected.damage,
+		Duration:    selected.duration,
+		Remaining:   selected.duration,
+		TriggerRate: selected.triggerRate,
+	}
+	village.Traps = append(village.Traps, newTrap)
+
+	fmt.Printf("\n✅ Crafted %s!\n", selected.name)
+	fmt.Printf("Will last for %d monster tides\n", selected.duration)
+
+	// Grant village XP
+	village.Experience += 35
+	fmt.Println("+35 Village XP")
+}
+
+func viewDefenses(village *Village) {
+	fmt.Println("\n============================================================")
+	fmt.Println("🏰 CURRENT DEFENSES")
+	fmt.Println("============================================================")
+
+	// Show walls and towers
+	walls := []Defense{}
+	towers := []Defense{}
+
+	for _, def := range village.Defenses {
+		if def.Type == "wall" {
+			walls = append(walls, def)
+		} else if def.Type == "tower" {
+			towers = append(towers, def)
+		}
+	}
+
+	if len(walls) > 0 {
+		fmt.Println("\n🛡️  WALLS:")
+		for _, wall := range walls {
+			fmt.Printf("  • %s (Defense: +%d)\n", wall.Name, wall.Defense)
+		}
+	}
+
+	if len(towers) > 0 {
+		fmt.Println("\n🗼 TOWERS:")
+		for _, tower := range towers {
+			fmt.Printf("  • %s (Defense: +%d, Attack: +%d)\n",
+				tower.Name, tower.Defense, tower.AttackPower)
+		}
+	}
+
+	// Show traps
+	if len(village.Traps) > 0 {
+		fmt.Println("\n⚠️  ACTIVE TRAPS:")
+		for i, trap := range village.Traps {
+			fmt.Printf("  %d. %s (Damage: %d, Waves left: %d/%d, Trigger: %d%%)\n",
+				i+1, trap.Name, trap.Damage, trap.Remaining, trap.Duration, trap.TriggerRate)
+		}
+	}
+
+	if len(village.Defenses) == 0 && len(village.Traps) == 0 {
+		fmt.Println("\nNo defenses built yet!")
+	}
+
+	fmt.Printf("\nTotal Defense Level: %d\n", village.DefenseLevel)
+	fmt.Println("============================================================")
+}
+
+func checkMonsterTide(village *Village) {
+	fmt.Println("\n============================================================")
+	fmt.Println("🌊 MONSTER TIDE STATUS")
+	fmt.Println("============================================================")
+
+	currentTime := time.Now().Unix()
+	timeSinceLastTide := currentTime - village.LastTideTime
+	timeUntilNext := village.TideInterval - int(timeSinceLastTide)
+
+	if timeUntilNext <= 0 {
+		fmt.Println("\n⚠️  MONSTER TIDE IS READY! ⚠️")
+		fmt.Println("\nA wave of monsters can attack your village!")
+		fmt.Printf("Village Defense Level: %d\n", village.DefenseLevel)
+		fmt.Printf("Defenses: %d built\n", len(village.Defenses))
+		fmt.Printf("Active Traps: %d\n", len(village.Traps))
+		fmt.Printf("Guards: %d villagers + %d hired\n",
+			countVillagersByRole(village, "guard"),
+			len(village.ActiveGuards))
+		fmt.Println("\nNote: You can trigger the tide defense from this menu")
+		fmt.Println("or it will happen automatically when you check again.")
+	} else {
+		hours := timeUntilNext / 3600
+		minutes := (timeUntilNext % 3600) / 60
+		fmt.Printf("\nNext Monster Tide in: %d hours, %d minutes\n", hours, minutes)
+		fmt.Printf("Village Defense Level: %d\n", village.DefenseLevel)
+		fmt.Printf("Defenses: %d built\n", len(village.Defenses))
+		fmt.Printf("Active Traps: %d\n", len(village.Traps))
+		fmt.Printf("Guards: %d villagers + %d hired\n",
+			countVillagersByRole(village, "guard"),
+			len(village.ActiveGuards))
+	}
+
+	fmt.Println("\nPrepare your defenses by:")
+	fmt.Println("  • Building more defenses")
+	fmt.Println("  • Crafting traps")
+	fmt.Println("  • Hiring guards")
+	fmt.Println("  • Rescuing guard villagers during hunts")
+	fmt.Println("============================================================")
+}
+
+// Monster Tide Defense - Active wave-based combat
+func monsterTideDefense(gameState *GameState, player *Character, village *Village) {
+	fmt.Println("\n============================================================")
+	fmt.Println("🌊 MONSTER TIDE DEFENSE 🌊")
+	fmt.Println("============================================================")
+
+	// Calculate tide difficulty based on village level
+	numWaves := 3 + (village.Level / 5) // 3-5 waves typically
+	baseMonsterLevel := village.Level
+	monstersPerWave := 5 + (village.Level / 3)
+
+	fmt.Printf("\n⚠️  A Monster Tide is approaching!\n")
+	fmt.Printf("Waves: %d\n", numWaves)
+	fmt.Printf("Monsters per wave: ~%d\n", monstersPerWave)
+	fmt.Printf("Monster Level: ~%d\n\n", baseMonsterLevel)
+
+	// Calculate village defense stats
+	totalDefense := 0
+	totalAttack := 0
+
+	for _, def := range village.Defenses {
+		totalDefense += def.Defense
+		totalAttack += def.AttackPower
+	}
+
+	// Count guards
+	villagerGuards := countVillagersByRole(village, "guard")
+	hiredGuards := len(village.ActiveGuards)
+	totalGuards := villagerGuards + hiredGuards
+
+	fmt.Println("🏰 YOUR DEFENSES:")
+	fmt.Printf("  Defense Power: %d (from %d structures)\n", totalDefense, len(village.Defenses))
+	fmt.Printf("  Attack Power: %d (from towers)\n", totalAttack)
+	fmt.Printf("  Active Traps: %d\n", len(village.Traps))
+	fmt.Printf("  Guards: %d total (%d villagers + %d hired)\n\n", totalGuards, villagerGuards, hiredGuards)
+
+	fmt.Print("Press ENTER to begin defense...")
+	bufio.NewScanner(os.Stdin).Scan()
+
+	// Battle statistics
+	wavesDefeated := 0
+	totalMonstersKilled := 0
+	damageDealt := 0
+	damageTaken := 0
+	trapsTriggered := 0
+
+	// Main wave loop
+	for wave := 1; wave <= numWaves; wave++ {
+		fmt.Printf("\n\n========== WAVE %d/%d ==========\n", wave, numWaves)
+
+		// Generate wave of monsters
+		waveSize := monstersPerWave + rand.Intn(3) - 1 // ±1 variance
+		monsters := make([]Monster, waveSize)
+
+		for i := 0; i < waveSize; i++ {
+			monsterLevel := baseMonsterLevel + rand.Intn(5) - 2 // ±2 level variance
+			if monsterLevel < 1 {
+				monsterLevel = 1
+			}
+			rank := 1 + rand.Intn(3)
+			monsters[i] = generateMonster(monsterNames[rand.Intn(len(monsterNames))], monsterLevel, rank)
+		}
+
+		fmt.Printf("\n%d monsters approach!\n", len(monsters))
+		time.Sleep(1 * time.Second)
+
+		// Process each monster in the wave
+		monstersAlive := len(monsters)
+
+		for i := 0; i < len(monsters) && monstersAlive > 0; i++ {
+			monster := &monsters[i]
+
+			if monster.HitpointsRemaining <= 0 {
+				continue // Already dead
+			}
+
+			fmt.Printf("\n  %s (Lv%d, HP:%d) attacks!\n", monster.Name, monster.Level, monster.HitpointsRemaining)
+
+			// PHASE 1: Trap triggering
+			trapTriggered := false
+			for j := range village.Traps {
+				trap := &village.Traps[j]
+				if trap.Remaining > 0 {
+					// Check if trap triggers
+					if rand.Intn(100) < trap.TriggerRate {
+						damage := trap.Damage
+						monster.HitpointsRemaining -= damage
+						fmt.Printf("    💥 %s triggers! (%d damage)\n", trap.Name, damage)
+						damageDealt += damage
+						trapsTriggered++
+						trapTriggered = true
+
+						if monster.HitpointsRemaining <= 0 {
+							fmt.Printf("    ☠️  %s killed by trap!\n", monster.Name)
+							monstersAlive--
+							totalMonstersKilled++
+							break
+						}
+					}
+				}
+			}
+
+			if monster.HitpointsRemaining <= 0 {
+				continue
+			}
+
+			// PHASE 2: Tower attacks
+			if totalAttack > 0 && !trapTriggered {
+				towerDamage := totalAttack + rand.Intn(5)
+				monster.HitpointsRemaining -= towerDamage
+				fmt.Printf("    🏹 Towers fire! (%d damage)\n", towerDamage)
+				damageDealt += towerDamage
+
+				if monster.HitpointsRemaining <= 0 {
+					fmt.Printf("    ☠️  %s killed by towers!\n", monster.Name)
+					monstersAlive--
+					totalMonstersKilled++
+					continue
+				}
+			}
+
+			// PHASE 3: Guard combat
+			if totalGuards > 0 {
+				guardDamage := totalGuards * (5 + rand.Intn(8))
+				monster.HitpointsRemaining -= guardDamage
+				fmt.Printf("    ⚔️  Guards attack! (%d damage)\n", guardDamage)
+				damageDealt += guardDamage
+
+				if monster.HitpointsRemaining <= 0 {
+					fmt.Printf("    ☠️  %s killed by guards!\n", monster.Name)
+					monstersAlive--
+					totalMonstersKilled++
+					continue
+				}
+			}
+
+			// PHASE 4: Monster attacks village
+			monsterAttack := monster.AttackRolls * 6
+			reducedDamage := monsterAttack - totalDefense
+			if reducedDamage < 1 {
+				reducedDamage = 1 // Minimum 1 damage
+			}
+
+			damageTaken += reducedDamage
+			fmt.Printf("    💢 %s breaches defenses! (%d damage to village)\n", monster.Name, reducedDamage)
+
+			// Small delay for readability
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Wave complete
+		fmt.Printf("\n✅ Wave %d complete!\n", wave)
+		fmt.Printf("  Monsters killed: %d/%d\n", waveSize-monstersAlive, waveSize)
+		fmt.Printf("  Damage dealt: %d\n", damageDealt)
+		fmt.Printf("  Damage taken: %d\n", damageTaken)
+
+		wavesDefeated++
+
+		// Decrement trap durability at end of wave
+		for j := len(village.Traps) - 1; j >= 0; j-- {
+			village.Traps[j].Remaining--
+			if village.Traps[j].Remaining <= 0 {
+				fmt.Printf("\n  🔧 %s has been consumed!\n", village.Traps[j].Name)
+				village.Traps = append(village.Traps[:j], village.Traps[j+1:]...)
+			}
+		}
+
+		if wave < numWaves {
+			fmt.Print("\n  Press ENTER for next wave...")
+			bufio.NewScanner(os.Stdin).Scan()
+		}
+	}
+
+	// Tide complete - calculate results
+	fmt.Println("\n\n============================================================")
+	fmt.Println("🏆 TIDE DEFENSE COMPLETE! 🏆")
+	fmt.Println("============================================================")
+
+	damageThreshold := village.DefenseLevel * 50 // Higher defense = more damage tolerance
+
+	if damageTaken < damageThreshold {
+		// VICTORY
+		xpReward := 100 * wavesDefeated
+		village.Experience += xpReward
+
+		fmt.Println("\n✨ VICTORY! Your defenses held strong! ✨")
+		fmt.Printf("\nBattle Summary:\n")
+		fmt.Printf("  Waves Defeated: %d/%d\n", wavesDefeated, numWaves)
+		fmt.Printf("  Monsters Killed: %d\n", totalMonstersKilled)
+		fmt.Printf("  Damage Dealt: %d\n", damageDealt)
+		fmt.Printf("  Damage Taken: %d/%d\n", damageTaken, damageThreshold)
+		fmt.Printf("  Traps Triggered: %d times\n", trapsTriggered)
+		fmt.Printf("\nRewards:\n")
+		fmt.Printf("  Village XP: +%d\n", xpReward)
+
+		// Bonus rewards for perfect defense
+		if damageTaken < damageThreshold/2 {
+			bonusGold := 50 + (village.Level * 10)
+			goldResource := player.ResourceStorageMap["Gold"]
+			goldResource.Stock += bonusGold
+			player.ResourceStorageMap["Gold"] = goldResource
+			fmt.Printf("  Bonus Gold: +%d (minimal damage taken!)\n", bonusGold)
+		}
+
+	} else {
+		// DEFEAT
+		fmt.Println("\n💀 DEFEAT! The tide overwhelmed your defenses! 💀")
+		fmt.Printf("\nBattle Summary:\n")
+		fmt.Printf("  Waves Survived: %d/%d\n", wavesDefeated, numWaves)
+		fmt.Printf("  Monsters Killed: %d\n", totalMonstersKilled)
+		fmt.Printf("  Damage Taken: %d/%d (too much!)\n", damageTaken, damageThreshold)
+
+		// Penalties
+		resourceLoss := village.Level * 5
+		fmt.Printf("\nPenalties:\n")
+		fmt.Printf("  Lost %d of each resource type\n", resourceLoss)
+
+		// Deduct resources
+		for _, resourceType := range resourceTypes {
+			resource := player.ResourceStorageMap[resourceType]
+			resource.Stock -= resourceLoss
+			if resource.Stock < 0 {
+				resource.Stock = 0
+			}
+			player.ResourceStorageMap[resourceType] = resource
+		}
+
+		// Injure some guards
+		if len(village.ActiveGuards) > 0 {
+			guardsLost := 1 + rand.Intn(len(village.ActiveGuards)/2+1)
+			if guardsLost > len(village.ActiveGuards) {
+				guardsLost = len(village.ActiveGuards)
+			}
+			village.ActiveGuards = village.ActiveGuards[:len(village.ActiveGuards)-guardsLost]
+			fmt.Printf("  %d hired guards were lost\n", guardsLost)
+		}
+	}
+
+	// Update last tide time
+	village.LastTideTime = time.Now().Unix()
+
+	// Upgrade village
+	upgradeVillage(village)
+
+	fmt.Println("\n============================================================")
+	fmt.Print("Press ENTER to continue...")
+	bufio.NewScanner(os.Stdin).Scan()
+}
+

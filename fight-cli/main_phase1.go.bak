@@ -1,0 +1,342 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"log"
+	"math/rand"
+	"os"
+	"strconv"
+	"time"
+
+	"rpg-game/pkg/data"
+	"rpg-game/pkg/game"
+	"rpg-game/pkg/models"
+)
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+
+	gameState := models.GameState{CharactersMap: map[string]models.Character{}}
+	if _, err := os.Stat("gamestate.json"); err == nil {
+		gameStateLoad, err := game.LoadGameStateFromFile("gamestate.json")
+		if err != nil {
+			log.Fatal(err)
+		} else {
+			gameState = gameStateLoad
+			if gameState.CharactersMap == nil {
+				gameState.CharactersMap = make(map[string]models.Character)
+			}
+			if gameState.GameLocations == nil {
+				gameState.GameLocations = make(map[string]models.Location)
+			}
+		}
+	} else {
+		fmt.Printf("File does not exist\n")
+		game.GenerateGameLocation(&gameState)
+		player := game.GenerateCharacter("Temp", 1, 1)
+		player.EquipmentMap = map[int]models.Item{}
+		player.Inventory = []models.Item{
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+		}
+		player.ResourceStorageMap = map[string]models.Resource{}
+		game.GenerateLocationsForNewCharacter(&player)
+		gameState.CharactersMap[player.Name] = player
+	}
+
+	// Initialize quest system if not already loaded
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]models.Quest)
+		for id, quest := range data.StoryQuests {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+
+	// Character selection
+	var player models.Character
+	if len(gameState.CharactersMap) == 0 {
+		fmt.Println("No characters found. Creating default 'Temp' character...")
+		game.GenerateGameLocation(&gameState)
+		player = game.GenerateCharacter("Temp", 1, 1)
+		player.EquipmentMap = map[int]models.Item{}
+		player.Inventory = []models.Item{
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+			game.CreateHealthPotion("small"),
+		}
+		player.ResourceStorageMap = map[string]models.Resource{}
+		game.GenerateLocationsForNewCharacter(&player)
+		gameState.CharactersMap[player.Name] = player
+	} else if len(gameState.CharactersMap) == 1 {
+		for _, c := range gameState.CharactersMap {
+			player = c
+		}
+		fmt.Printf("Playing as %s (Level %d)\n", player.Name, player.Level)
+	} else {
+		fmt.Println("Select your character:")
+		for name, c := range gameState.CharactersMap {
+			fmt.Printf("  %s (Level %d)\n", name, c.Level)
+		}
+		fmt.Print("Enter character name: ")
+		selectScanner := bufio.NewScanner(os.Stdin)
+		selectScanner.Scan()
+		selectedName := selectScanner.Text()
+		selectedChar, exists := gameState.CharactersMap[selectedName]
+		if exists {
+			player = selectedChar
+			fmt.Printf("Playing as %s (Level %d)\n", player.Name, player.Level)
+		} else {
+			for _, c := range gameState.CharactersMap {
+				player = c
+				break
+			}
+			fmt.Printf("Character not found. Playing as %s (Level %d)\n", player.Name, player.Level)
+		}
+	}
+
+	// Initialize quest arrays for old save files
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{"quest_1_training"}
+	}
+
+	gameState.CharactersMap[player.Name] = player
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Print("\nOptions:\n0 = Character Create\n1 = Harvest\n2 = Search\n3 = Hunt\n4 = Print Discovered Locations\n5 = Player Stats\n6 = Load Save\n8 = AUTO-PLAY MODE (Watch AI Play)\n9 = Quest Log\n10 = Village Management\n")
+		fmt.Print("Enter input:\n")
+		scanner.Scan()
+		input := scanner.Text()
+
+		if input == "exit" {
+			gameState.CharactersMap[player.Name] = player
+			err := game.WriteGameStateToFile(gameState, "gamestate.json")
+			if err != nil {
+				log.Fatal(err)
+			}
+			break
+		}
+
+		switch input {
+		case "-1":
+			player = game.GenerateCharacter("Avery", 1, 1)
+			player.EquipmentMap = map[int]models.Item{}
+			player.Inventory = []models.Item{
+				game.CreateHealthPotion("small"),
+				game.CreateHealthPotion("small"),
+				game.CreateHealthPotion("small"),
+			}
+			player.ResourceStorageMap = map[string]models.Resource{}
+			player.BuiltBuildings = []models.Building{}
+			game.GenerateLocationsForNewCharacter(&player)
+			gameState.CharactersMap["Avery"] = player
+
+		case "0":
+			fmt.Print("Create new Character:\nEnter Name: \n")
+			scanner.Scan()
+			input = scanner.Text()
+			_, exists := gameState.CharactersMap[input]
+			if !exists {
+				newPlayer := game.GenerateCharacter(input, 1, 1)
+				newPlayer.EquipmentMap = map[int]models.Item{}
+				newPlayer.Inventory = []models.Item{
+					game.CreateHealthPotion("small"),
+					game.CreateHealthPotion("small"),
+					game.CreateHealthPotion("small"),
+				}
+				newPlayer.ResourceStorageMap = map[string]models.Resource{}
+				newPlayer.BuiltBuildings = []models.Building{}
+				game.GenerateLocationsForNewCharacter(&newPlayer)
+				gameState.CharactersMap[input] = newPlayer
+				fmt.Print("Character Created \n")
+				game.PrintCharacter(newPlayer)
+				err := game.WriteGameStateToFile(gameState, "gamestate.json")
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else {
+				fmt.Println("Character with this Name already Exists")
+			}
+
+		case "1":
+			fmt.Print("Enter type to Harvest: \n")
+			for i := 0; i < len(data.ResourceTypes); i++ {
+				fmt.Println(data.ResourceTypes[i])
+			}
+			scanner.Scan()
+			input = scanner.Text()
+			game.HarvestResource(input, &player.ResourceStorageMap)
+			game.PrintResources(player.ResourceStorageMap)
+
+		case "2":
+			foundLocation := game.SearchLocation(player.KnownLocations, data.DiscoverableLocations)
+			if len(foundLocation) > 0 {
+				fmt.Printf("Adding Found Location: %s\n", foundLocation)
+				player.KnownLocations = append(player.KnownLocations, foundLocation)
+				gameState.CharactersMap[player.Name] = player
+				err := game.WriteGameStateToFile(gameState, "gamestate.json")
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+		case "3":
+			fmt.Print("What Location?\n")
+			fmt.Println("Discovered locations:")
+			for i := 0; i < len(player.KnownLocations); i++ {
+				location := gameState.GameLocations[player.KnownLocations[i]]
+				if location.Type != "Base" {
+					fmt.Printf("[%s] %s : %s\n", player.KnownLocations[i], location.Name, location.Type)
+				}
+			}
+			scanner.Scan()
+			input = scanner.Text()
+			_, ok := gameState.GameLocations[input]
+			if ok {
+				discoveredLocation := gameState.GameLocations[input]
+				found := false
+				for i := 0; i < len(player.KnownLocations); i++ {
+					if discoveredLocation.Name == player.KnownLocations[i] {
+						found = true
+						break
+					}
+				}
+				if found {
+					if discoveredLocation.Type != "Base" {
+						fmt.Print("How Many Hunts?  ")
+						scanner.Scan()
+						input = scanner.Text()
+						huntCount, err := strconv.Atoi(input)
+						if err != nil {
+							fmt.Println(err)
+						}
+						game.GoHunt(&gameState, &discoveredLocation, huntCount, &player)
+					} else {
+						fmt.Println("Cannot Hunt at a Base.")
+					}
+				} else {
+					fmt.Println("Player has not discovered this location")
+				}
+			}
+
+		case "4":
+			fmt.Println("Discovered locations:")
+			for _, location := range player.KnownLocations {
+				fmt.Println(location)
+				game.PrintMonstersAtLocation(gameState.GameLocations[location])
+			}
+
+		case "5":
+			game.PrintCharacter(player)
+			gameState.CharactersMap[player.Name] = player
+			err := game.WriteGameStateToFile(gameState, "gamestate.json")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+		case "6":
+			game.PrintCharacter(player)
+			gameStateLoad, err := game.LoadGameStateFromFile("gamestate.json")
+			if err != nil {
+				log.Fatal(err)
+			} else {
+				gameState = gameStateLoad
+			}
+			fmt.Print("Select Character: \n")
+			scanner.Scan()
+			input = scanner.Text()
+			loadedPlayer, exists := gameState.CharactersMap[input]
+			if exists {
+				player = loadedPlayer
+				game.GenerateMissingResourceType(&player)
+				game.PrintCharacter(player)
+			} else {
+				fmt.Println("Player not found")
+			}
+
+		case "7":
+			fmt.Print("What do you want to build?\n")
+			for i := 0; i < len(data.AvailableBuildings); i++ {
+				fmt.Println(data.AvailableBuildings[i].Name)
+			}
+			scanner.Scan()
+			input = scanner.Text()
+			build := true
+			desiredBuilding := data.AvailableBuildings[0]
+			for i := 0; i < len(data.AvailableBuildings); i++ {
+				if data.AvailableBuildings[i].Name == input {
+					desiredBuilding = data.AvailableBuildings[i]
+					for resourceName, resourceValue := range desiredBuilding.RequiredResourceMap {
+						if player.ResourceStorageMap[resourceName].Stock < resourceValue {
+							build = false
+						}
+					}
+				}
+			}
+			if build {
+				for resourceName, resourceValue := range desiredBuilding.RequiredResourceMap {
+					if player.ResourceStorageMap[resourceName].Stock >= resourceValue {
+						resource := player.ResourceStorageMap[resourceName]
+						resource.Stock = resource.Stock - resourceValue
+						player.ResourceStorageMap[resourceName] = resource
+					}
+				}
+				player.BuiltBuildings = append(player.BuiltBuildings, desiredBuilding)
+				fmt.Printf("Built Building %s", desiredBuilding.Name)
+			}
+
+		case "8":
+			fmt.Println("\n AUTO-PLAY MODE")
+			fmt.Println("Watch the AI play the game automatically!")
+			fmt.Println("\nSelect speed:")
+			fmt.Println("1 = Slow (2s per fight)")
+			fmt.Println("2 = Normal (1s per fight)")
+			fmt.Println("3 = Fast (0.5s per fight)")
+			fmt.Println("4 = Turbo (0.1s per fight)")
+			fmt.Print("Choice: ")
+			scanner.Scan()
+			speedChoice := scanner.Text()
+
+			speedMap := map[string]string{
+				"1": "slow",
+				"2": "normal",
+				"3": "fast",
+				"4": "turbo",
+			}
+
+			speed := speedMap[speedChoice]
+			if speed == "" {
+				speed = "normal"
+			}
+
+			gameState.CharactersMap[player.Name] = player
+			err := game.WriteGameStateToFile(gameState, "gamestate.json")
+			if err != nil {
+				log.Fatal(err)
+			}
+			game.AutoPlayMode(&gameState, &player, speed)
+
+		case "9":
+			game.ShowQuestLog(&player, &gameState)
+
+		case "10":
+			if gameState.Villages == nil {
+				gameState.Villages = make(map[string]models.Village)
+			}
+			village, exists := gameState.Villages[player.VillageName]
+			if !exists {
+				village = game.GenerateVillage(player.Name)
+				gameState.Villages[player.VillageName] = village
+			}
+			game.ShowVillageMenu(&gameState, &player, &village)
+			gameState.Villages[player.VillageName] = village
+		}
+	}
+
+	fmt.Println("Exiting the application.")
+}
