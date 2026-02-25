@@ -179,7 +179,7 @@ type PlayerState struct {
 	KnownLocations  []LocationView      `json:"known_locations"`
 	LockedLocations []LocationView      `json:"locked_locations"`
 	ActiveQuests    []QuestView         `json:"active_quests"`
-	CompletedQuests []string            `json:"completed_quests"`
+	CompletedQuests []QuestView         `json:"completed_quests"`
 	VillageName     string              `json:"village_name"`
 	Buildings       []string            `json:"buildings"`
 }
@@ -369,12 +369,8 @@ func MakePlayerState(p *models.Character) *PlayerState {
 		ps.LockedLocations = append(ps.LockedLocations, lv)
 	}
 
-	// Completed quests
-	if p.CompletedQuests != nil {
-		ps.CompletedQuests = p.CompletedQuests
-	} else {
-		ps.CompletedQuests = []string{}
-	}
+	// Completed quests (populated by MakeCompletedQuestViews where GameState is available)
+	ps.CompletedQuests = []QuestView{}
 
 	// Buildings
 	ps.Buildings = make([]string, 0, len(p.BuiltBuildings))

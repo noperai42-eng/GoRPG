@@ -550,11 +550,14 @@
                     Completed Quests
                     <span class="quests-completed-count" x-text="completedQuests.length"></span>
                 </div>
-                <div x-show="showCompleted">
-                    <template x-for="qid in completedQuests" :key="qid">
-                        <div class="quest-completed-item">
-                            <span class="quest-check">&#x2713;</span>
-                            <span x-text="qid"></span>
+                <div class="quest-list" x-show="showCompleted">
+                    <template x-for="quest in completedQuests" :key="quest.id">
+                        <div class="quest-card quest-card-completed">
+                            <div class="quest-card-header">
+                                <span class="quest-name"><span class="quest-check">&#x2713;</span> <span x-text="quest.name"></span></span>
+                                <span class="quest-reward" x-text="'+' + quest.reward_xp + ' XP'"></span>
+                            </div>
+                            <div class="quest-description" x-text="quest.description"></div>
                         </div>
                     </template>
                 </div>

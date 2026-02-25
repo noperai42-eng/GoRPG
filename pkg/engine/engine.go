@@ -378,6 +378,7 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 	ps := MakePlayerStateWithLocations(session.Player, session.GameState)
 	if ps != nil {
 		ps.ActiveQuests = MakeQuestViews(session.Player, session.GameState)
+		ps.CompletedQuests = MakeCompletedQuestViews(session.Player, session.GameState)
 	}
 
 	return GameResponse{

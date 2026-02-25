@@ -22,9 +22,14 @@
     padding: 1rem;
 }
 
-.quest-card.completed {
+.quest-card.completed,
+.quest-card-completed {
     opacity: 0.7;
     border-color: var(--hp-high);
+}
+
+.quest-card-completed .quest-description {
+    margin-bottom: 0;
 }
 
 .quest-card-header {
