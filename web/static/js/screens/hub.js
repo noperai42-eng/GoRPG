@@ -2,6 +2,7 @@
 function hubScreen() {
     return {
         equipSlots: ['Head', 'Chest', 'Legs', 'Feet', 'Hands', 'Main Hand', 'Off Hand', 'Accessory'],
+        selectedSlot: null,
 
         get p() { return this.$store.game.player; },
         get hasAutoplay() {
@@ -14,10 +15,24 @@ function hubScreen() {
             return this.p.equipment[slotName] || null;
         },
 
+        toggleItemInfo(slot) {
+            if (this.selectedSlot === slot) {
+                this.selectedSlot = null;
+            } else if (this.getEquipItem(slot)) {
+                this.selectedSlot = slot;
+            }
+        },
+
         rarityClass(item) {
             if (!item) return '';
             const r = item.rarity || 1;
             return 'rarity-' + Math.min(r, 5);
+        },
+
+        rarityLabel(item) {
+            if (!item) return '';
+            const labels = {1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Epic', 5: 'Legendary'};
+            return labels[Math.min(item.rarity || 1, 5)] || 'Common';
         },
 
         skillCost(skill) {

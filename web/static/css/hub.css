@@ -65,7 +65,8 @@
     min-width: 0;
 }
 
-.equip-slot:hover { border-color: var(--text-muted); }
+.equip-slot:hover { border-color: var(--text-muted); cursor: pointer; }
+.equip-slot-selected { border-color: var(--accent) !important; background: var(--accent-subtle) !important; }
 
 .equip-slot-name {
     color: var(--text-muted);
@@ -89,6 +90,120 @@
 .equip-slot.rarity-3 { border-left: 2px solid var(--rarity-3); }
 .equip-slot.rarity-4 { border-left: 2px solid var(--rarity-4); }
 .equip-slot.rarity-5 { border-left: 2px solid var(--rarity-5); }
+
+/* Item Detail Popup */
+.item-detail-popup {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 50;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0;
+    min-width: 240px;
+    max-width: 300px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    overflow: hidden;
+}
+
+.item-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.item-detail-header.rarity-1 { border-left: 3px solid var(--rarity-1); }
+.item-detail-header.rarity-2 { border-left: 3px solid var(--rarity-2); }
+.item-detail-header.rarity-3 { border-left: 3px solid var(--rarity-3); }
+.item-detail-header.rarity-4 { border-left: 3px solid var(--rarity-4); }
+.item-detail-header.rarity-5 { border-left: 3px solid var(--rarity-5); }
+
+.item-detail-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.item-detail-close {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+.item-detail-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.item-detail-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+}
+
+.item-detail-slot {
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.5px;
+}
+
+.item-detail-rarity {
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.item-detail-rarity.rarity-1 { color: var(--rarity-1); }
+.item-detail-rarity.rarity-2 { color: var(--rarity-2); }
+.item-detail-rarity.rarity-3 { color: var(--rarity-3); }
+.item-detail-rarity.rarity-4 { color: var(--rarity-4); }
+.item-detail-rarity.rarity-5 { color: var(--rarity-5); }
+
+.item-detail-cp {
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+}
+.item-detail-cp span {
+    color: var(--color-buff);
+    font-weight: 700;
+}
+
+.item-detail-stats {
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.item-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+}
+
+.item-stat-icon {
+    font-size: 0.9rem;
+    width: 1.2rem;
+    text-align: center;
+}
+
+.item-stat-val {
+    margin-left: auto;
+    font-weight: 700;
+    color: var(--color-heal);
+}
 
 /* Skills List */
 .skill-list {

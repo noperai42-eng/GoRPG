@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RPG Game</title>
     <style>[x-cloak] { display: none !important; }</style>
-    <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
-    <link rel="stylesheet" href="css/auth.css">
-    <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/hub.css">
-    <link rel="stylesheet" href="css/map.css">
-    <link rel="stylesheet" href="css/combat.css">
-    <link rel="stylesheet" href="css/village.css">
-    <link rel="stylesheet" href="css/quests.css">
+    <link rel="stylesheet" href="css/variables.css?v=3">
+    <link rel="stylesheet" href="css/layout.css?v=3">
+    <link rel="stylesheet" href="css/auth.css?v=3">
+    <link rel="stylesheet" href="css/components.css?v=3">
+    <link rel="stylesheet" href="css/hub.css?v=3">
+    <link rel="stylesheet" href="css/map.css?v=3">
+    <link rel="stylesheet" href="css/combat.css?v=3">
+    <link rel="stylesheet" href="css/village.css?v=3">
+    <link rel="stylesheet" href="css/quests.css?v=3">
 </head>
 <body x-data x-cloak>
 <div id="app">
@@ -237,14 +237,55 @@
                             </div>
 
                             <!-- Equipment -->
-                            <div class="card">
+                            <div class="card" style="position: relative;">
                                 <div class="section-header">Equipment</div>
                                 <div class="equipment-grid">
                                     <template x-for="slot in equipSlots" :key="slot">
-                                        <div class="equip-slot" :class="getEquipItem(slot) ? rarityClass(getEquipItem(slot)) : ''">
+                                        <div class="equip-slot"
+                                             :class="[getEquipItem(slot) ? rarityClass(getEquipItem(slot)) : '', selectedSlot === slot ? 'equip-slot-selected' : '']"
+                                             @click="toggleItemInfo(slot)">
                                             <span class="equip-slot-name" x-text="slot"></span>
-                                            <span x-show="getEquipItem(slot)" class="equip-slot-item" x-text="getEquipItem(slot)?.name" :title="getEquipItem(slot) ? 'CP:' + getEquipItem(slot).cp + ' ATK:+' + getEquipItem(slot).attack + ' DEF:+' + getEquipItem(slot).defense + ' HP:+' + getEquipItem(slot).hitpoint : ''"></span>
+                                            <span x-show="getEquipItem(slot)" class="equip-slot-item" x-text="getEquipItem(slot)?.name"></span>
                                             <span x-show="!getEquipItem(slot)" class="equip-slot-empty">Empty</span>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- Item detail popup -->
+                                <div class="item-detail-popup" x-show="selectedSlot && getEquipItem(selectedSlot)" x-transition.opacity @click.outside="selectedSlot = null">
+                                    <template x-if="selectedSlot && getEquipItem(selectedSlot)">
+                                        <div>
+                                            <div class="item-detail-header" :class="rarityClass(getEquipItem(selectedSlot))">
+                                                <span class="item-detail-name" x-text="getEquipItem(selectedSlot)?.name"></span>
+                                                <span class="item-detail-close" @click="selectedSlot = null">&#x2715;</span>
+                                            </div>
+                                            <div class="item-detail-meta">
+                                                <span class="item-detail-slot" x-text="selectedSlot"></span>
+                                                <span class="item-detail-rarity" :class="rarityClass(getEquipItem(selectedSlot))" x-text="rarityLabel(getEquipItem(selectedSlot))"></span>
+                                            </div>
+                                            <div class="item-detail-cp">
+                                                CP <span x-text="getEquipItem(selectedSlot)?.cp"></span>
+                                            </div>
+                                            <div class="item-detail-stats">
+                                                <div class="item-stat" x-show="getEquipItem(selectedSlot)?.attack > 0">
+                                                    <span class="item-stat-icon" style="color: var(--color-damage);">&#x2694;</span>
+                                                    <span>Attack</span>
+                                                    <span class="item-stat-val" x-text="'+' + getEquipItem(selectedSlot)?.attack"></span>
+                                                </div>
+                                                <div class="item-stat" x-show="getEquipItem(selectedSlot)?.defense > 0">
+                                                    <span class="item-stat-icon" style="color: var(--color-system);">&#x1F6E1;</span>
+                                                    <span>Defense</span>
+                                                    <span class="item-stat-val" x-text="'+' + getEquipItem(selectedSlot)?.defense"></span>
+                                                </div>
+                                                <div class="item-stat" x-show="getEquipItem(selectedSlot)?.hitpoint > 0">
+                                                    <span class="item-stat-icon" style="color: var(--color-heal);">&#x2764;</span>
+                                                    <span>Hit Points</span>
+                                                    <span class="item-stat-val" x-text="'+' + getEquipItem(selectedSlot)?.hitpoint"></span>
+                                                </div>
+                                                <div class="item-stat" x-show="getEquipItem(selectedSlot)?.attack === 0 && getEquipItem(selectedSlot)?.defense === 0 && getEquipItem(selectedSlot)?.hitpoint === 0">
+                                                    <span style="color: var(--text-muted); font-style: italic;">No stat bonuses</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </template>
                                 </div>
@@ -724,16 +765,16 @@
 </script>
 
 <script src="alpine.min.js" defer></script>
-<script src="js/auth.js?v=2"></script>
-<script src="js/websocket.js?v=2"></script>
-<script src="js/store.js?v=2"></script>
-<script src="js/components/navbar.js?v=2"></script>
-<script src="js/components/toasts.js?v=2"></script>
-<script src="js/components/modals.js?v=2"></script>
-<script src="js/screens/hub.js?v=2"></script>
-<script src="js/screens/map.js?v=2"></script>
-<script src="js/screens/combat.js?v=2"></script>
-<script src="js/screens/village.js?v=2"></script>
-<script src="js/screens/quests.js?v=2"></script>
+<script src="js/auth.js?v=3"></script>
+<script src="js/websocket.js?v=3"></script>
+<script src="js/store.js?v=3"></script>
+<script src="js/components/navbar.js?v=3"></script>
+<script src="js/components/toasts.js?v=3"></script>
+<script src="js/components/modals.js?v=3"></script>
+<script src="js/screens/hub.js?v=3"></script>
+<script src="js/screens/map.js?v=3"></script>
+<script src="js/screens/combat.js?v=3"></script>
+<script src="js/screens/village.js?v=3"></script>
+<script src="js/screens/quests.js?v=3"></script>
 </body>
 </html>
