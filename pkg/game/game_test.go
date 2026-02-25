@@ -180,7 +180,7 @@ func TestElementalDamage(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	// Create a slime (weak to fire)
-	slime := GenerateMonster("slime", 5, 3)
+	slime := GenerateMonster("ooze", 5, 3)
 
 	// Test fire damage (should be 2x)
 	fireDamage := ApplyDamage(10, models.Fire, &slime)
@@ -259,7 +259,7 @@ func TestAIDecisionMaking(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	player := createTestCharacter("AITest", 5)
-	mob := GenerateMonster("goblin", 5, 3)
+	mob := GenerateMonster("kobold", 5, 3)
 
 	// Test low HP decision (should try to heal)
 	player.HitpointsRemaining = player.HitpointsTotal / 4 // 25% HP
@@ -611,7 +611,7 @@ func BenchmarkMonsterGeneration(b *testing.B) {
 
 func BenchmarkDamageCalculation(b *testing.B) {
 	rand.Seed(time.Now().UnixNano())
-	mob := GenerateMonster("slime", 5, 3)
+	mob := GenerateMonster("ooze", 5, 3)
 	for i := 0; i < b.N; i++ {
 		ApplyDamage(10, models.Fire, &mob)
 	}
@@ -817,7 +817,7 @@ func TestGuardAttack(t *testing.T) {
 		},
 	}
 
-	monster := GenerateMonster("goblin", 5, 2)
+	monster := GenerateMonster("kobold", 5, 2)
 	initialHP := monster.HitpointsRemaining
 
 	// Guards attack
@@ -854,7 +854,7 @@ func TestInjuredGuardNoAttack(t *testing.T) {
 		},
 	}
 
-	monster := GenerateMonster("goblin", 5, 2)
+	monster := GenerateMonster("kobold", 5, 2)
 	initialHP := monster.HitpointsRemaining
 
 	// Injured guard attempts attack
@@ -1136,7 +1136,7 @@ func TestMonsterBossFlag(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	// Regular monster
-	regularMonster := GenerateMonster("goblin", 5, 2)
+	regularMonster := GenerateMonster("kobold", 5, 2)
 	if regularMonster.IsBoss {
 		t.Error("Regular monster should not be marked as boss")
 	}

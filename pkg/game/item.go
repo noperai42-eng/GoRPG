@@ -8,8 +8,8 @@ import (
 )
 
 func GenerateItem(rarity int) models.Item {
-	name := data.ADJECTIVES[rand.Intn(len(data.ADJECTIVES))] + data.NOUNS[rand.Intn(len(data.NOUNS))]
 	slot := rand.Intn(8)
+	name := generateGearName(slot)
 	statsMod := models.StatMod{AttackMod: 0, DefenseMod: 0, HitPointMod: 0}
 	item := models.Item{Name: name, Rarity: rarity, Slot: slot, StatsMod: statsMod, CP: 0, ItemType: "equipment"}
 
@@ -27,6 +27,13 @@ func GenerateItem(rarity int) models.Item {
 
 	item.CP = item.StatsMod.AttackMod + item.StatsMod.DefenseMod + item.StatsMod.HitPointMod
 	return item
+}
+
+func generateGearName(slot int) string {
+	prefix := data.ItemPrefixes[rand.Intn(len(data.ItemPrefixes))]
+	gearNames := data.SlotGearNames[slot]
+	base := gearNames[rand.Intn(len(gearNames))]
+	return prefix + " " + base
 }
 
 func CreateHealthPotion(size string) models.Item {
@@ -137,34 +144,23 @@ func DropBeastMaterial(monsterType string, player *models.Character) (string, in
 	var materials []string
 	var dropChance int
 
-	switch monsterType {
-	case "slime":
-		materials = []string{"Beast Skin", "Ore Fragment"}
-		dropChance = 40
-	case "goblin":
-		materials = []string{"Beast Bone", "Sharp Fang"}
-		dropChance = 50
-	case "orc":
-		materials = []string{"Beast Bone", "Tough Hide"}
-		dropChance = 55
-	case "kobold":
-		materials = []string{"Sharp Fang", "Beast Skin"}
-		dropChance = 45
-	case "hiftier":
-		materials = []string{"Ore Fragment", "Monster Claw"}
-		dropChance = 60
-	case "golem":
-		materials = []string{"Ore Fragment", "Beast Bone"}
-		dropChance = 70
-	case "kitpod":
-		materials = []string{"Tough Hide", "Monster Claw"}
-		dropChance = 50
-	case "Guardian":
-		materials = []string{"Tough Hide", "Sharp Fang", "Monster Claw"}
-		dropChance = 80
-	default:
-		materials = []string{"Beast Skin", "Beast Bone"}
-		dropChance = 40
+	// Check per-monster override first
+	if md, ok := monsterMaterialOverrides[monsterType]; ok {
+		materials = md.Materials
+		dropChance = md.DropChance
+	} else {
+		// Fall back to category
+		cat := data.MonsterCategory[monsterType]
+		if cat == "" {
+			cat = "humanoid"
+		}
+		if md, ok := categoryMaterials[cat]; ok {
+			materials = md.Materials
+			dropChance = md.DropChance
+		} else {
+			materials = []string{"Beast Skin", "Beast Bone"}
+			dropChance = 40
+		}
 	}
 
 	if rand.Intn(100) < dropChance {

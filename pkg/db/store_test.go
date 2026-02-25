@@ -220,11 +220,11 @@ func TestSaveLoadLocations(t *testing.T) {
 			RarityMax: 2,
 			Monsters: []models.Monster{
 				{
-					Name:               "Slime",
+					Name:               "Ooze",
 					Level:              1,
 					HitpointsTotal:     20,
 					HitpointsRemaining: 20,
-					MonsterType:        "slime",
+					MonsterType:        "ooze",
 					Resistances:        map[models.DamageType]float64{models.Physical: 0.5, models.Fire: 2.0},
 				},
 			},
@@ -267,11 +267,11 @@ func TestSaveLoadLocations(t *testing.T) {
 	if len(th.Monsters) != 1 {
 		t.Fatalf("Training Hall monsters: got %d, want 1", len(th.Monsters))
 	}
-	if th.Monsters[0].MonsterType != "slime" {
-		t.Errorf("monster type: got %q, want %q", th.Monsters[0].MonsterType, "slime")
+	if th.Monsters[0].MonsterType != "ooze" {
+		t.Errorf("monster type: got %q, want %q", th.Monsters[0].MonsterType, "ooze")
 	}
 	if th.Monsters[0].Resistances[models.Fire] != 2.0 {
-		t.Errorf("slime fire resistance: got %f, want 2.0", th.Monsters[0].Resistances[models.Fire])
+		t.Errorf("ooze fire resistance: got %f, want 2.0", th.Monsters[0].Resistances[models.Fire])
 	}
 
 	df, ok := loaded["Dark Forest"]
