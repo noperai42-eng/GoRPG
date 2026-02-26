@@ -2,10 +2,11 @@
 document.addEventListener('alpine:init', () => {
     Alpine.store('game', {
         screen: 'auth',          // 'auth' | 'characters' | 'game'
-        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'quests'
+        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'town' | 'quests'
         player: null,            // PlayerState from server
         combat: null,            // CombatView from server
         village: null,           // VillageView from server
+        town: null,              // TownView from server
         serverScreen: null,      // raw screen field from server
         options: [],             // current server options
         prompt: null,            // current server prompt
@@ -45,6 +46,9 @@ document.addEventListener('alpine:init', () => {
                 }
                 if (resp.state.village) {
                     this.village = resp.state.village;
+                }
+                if (resp.state.town) {
+                    this.town = resp.state.town;
                 }
                 this.serverScreen = resp.state.screen || null;
             }
@@ -126,6 +130,7 @@ document.addEventListener('alpine:init', () => {
                     this.player = null;
                     this.combat = null;
                     this.village = null;
+                    this.town = null;
                     this.activeTab = 'hub';
                 }, 1500);
             }
@@ -149,6 +154,12 @@ document.addEventListener('alpine:init', () => {
             // Village screens
             if (s.startsWith('village_')) {
                 this.activeTab = 'village';
+                return;
+            }
+
+            // Town screens
+            if (s.startsWith('town_')) {
+                this.activeTab = 'town';
                 return;
             }
 

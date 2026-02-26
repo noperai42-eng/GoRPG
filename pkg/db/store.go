@@ -85,6 +85,10 @@ func (s *Store) createTables() error {
 			id   TEXT PRIMARY KEY,
 			data TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS towns (
+			name TEXT PRIMARY KEY,
+			data TEXT NOT NULL
+		)`,
 	}
 
 	for _, stmt := range statements {
@@ -436,4 +440,47 @@ func (s *Store) LoadQuests() (map[string]models.Quest, error) {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 	return quests, nil
+}
+
+// ---------------------------------------------------------------------------
+// Town methods
+// ---------------------------------------------------------------------------
+
+// SaveTown persists a town record. The town struct is serialized to JSON.
+func (s *Store) SaveTown(town models.Town) error {
+	data, err := json.Marshal(town)
+	if err != nil {
+		return fmt.Errorf("failed to marshal town: %w", err)
+	}
+
+	_, err = s.db.Exec(
+		"INSERT OR REPLACE INTO towns (name, data) VALUES (?, ?)",
+		town.Name, string(data),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save town %q: %w", town.Name, err)
+	}
+	return nil
+}
+
+// LoadTown retrieves a town by name.
+// Returns the town and a nil error, or an empty town and an error if not found.
+func (s *Store) LoadTown(name string) (models.Town, error) {
+	var data string
+	err := s.db.QueryRow(
+		"SELECT data FROM towns WHERE name = ?",
+		name,
+	).Scan(&data)
+	if err == sql.ErrNoRows {
+		return models.Town{}, fmt.Errorf("town %q not found", name)
+	}
+	if err != nil {
+		return models.Town{}, fmt.Errorf("failed to load town %q: %w", name, err)
+	}
+
+	var town models.Town
+	if err := json.Unmarshal([]byte(data), &town); err != nil {
+		return models.Town{}, fmt.Errorf("failed to unmarshal town: %w", err)
+	}
+	return town, nil
 }

@@ -1,0 +1,182 @@
+/* Town styles */
+.town-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+.town-header h2 {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    margin: 0;
+}
+.town-header-stats {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.town-content {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+}
+
+/* Inn guest cards */
+.guest-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.guest-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.guest-card.own-guest {
+    border-color: var(--color-system);
+    opacity: 0.7;
+}
+.guest-info {
+    display: flex;
+    flex-direction: column;
+}
+.guest-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+.guest-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+.guest-action {
+    display: flex;
+    gap: 0.25rem;
+}
+
+/* Mayor panel */
+.mayor-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+}
+.mayor-name {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+.mayor-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.mayor-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.25rem 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+}
+
+/* Fetch quest cards */
+.fetch-quest-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.fetch-quest-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+}
+.fetch-quest-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.fetch-quest-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+.fetch-quest-reward {
+    font-size: 0.8rem;
+    color: var(--color-loot);
+    font-weight: 600;
+}
+.fetch-quest-desc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+.fetch-quest-req {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.fetch-quest-claimed {
+    font-size: 0.75rem;
+    color: var(--color-system);
+    font-style: italic;
+}
+
+/* Attack log */
+.attack-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+.attack-log-entry {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.8rem;
+}
+.attack-log-entry.success {
+    border-left: 3px solid var(--color-heal);
+}
+.attack-log-entry.failure {
+    border-left: 3px solid var(--color-error);
+}
+.attack-log-names {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.attack-log-details {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+/* Treasury */
+.treasury-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.5rem;
+}
+.treasury-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.5rem;
+    text-align: center;
+}
+.treasury-name {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.treasury-amount {
+    font-weight: 700;
+    color: var(--color-loot);
+    font-size: 1rem;
+}

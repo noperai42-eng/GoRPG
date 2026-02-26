@@ -330,6 +330,11 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		// Return a "pass-through" that the village handler will process
 		return e.handleVillageMain(session, GameCommand{Type: "init", Value: ""})
 
+	case "11":
+		// Town
+		session.State = StateTownMain
+		return e.handleTownMain(session, GameCommand{Type: "init"})
+
 	case "exit":
 		gs.CharactersMap[player.Name] = *player
 		game.WriteGameStateToFile(*gs, session.SaveFile)
@@ -352,11 +357,40 @@ func (e *Engine) handleHarvestSelect(session *GameSession, cmd GameCommand) Game
 
 	amount := game.HarvestResource(resourceType, &player.ResourceStorageMap)
 
+	// Apply town tax
+	taxMsg := ""
+	if e.store != nil && amount > 0 {
+		town, err := e.store.LoadTown(game.DefaultTownName)
+		if err == nil && town.TaxRate > 0 {
+			netAmount, taxAmount := game.CalculateTax(amount, town.TaxRate)
+			if taxAmount > 0 {
+				// Reduce player's harvest by tax
+				res := player.ResourceStorageMap[resourceType]
+				res.Stock -= taxAmount
+				player.ResourceStorageMap[resourceType] = res
+
+				// Add to treasury
+				if town.Treasury == nil {
+					town.Treasury = make(map[string]int)
+				}
+				town.Treasury[resourceType] += taxAmount
+				e.store.SaveTown(town)
+
+				taxMsg = fmt.Sprintf("Tax collected: %d %s (%d%% tax, net: %d)", taxAmount, resourceType, town.TaxRate, netAmount)
+			}
+		}
+	}
+
 	msgs := []GameMessage{
 		Msg(fmt.Sprintf("Harvested %d %s!", amount, resourceType), "loot"),
+	}
+	if taxMsg != "" {
+		msgs = append(msgs, Msg(taxMsg, "system"))
+	}
+	msgs = append(msgs,
 		Msg("", "system"),
 		Msg("Current Resources:", "system"),
-	}
+	)
 	for _, res := range data.ResourceTypes {
 		r, exists := player.ResourceStorageMap[res]
 		if exists {

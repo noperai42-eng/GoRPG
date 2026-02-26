@@ -64,6 +64,23 @@ const (
 	StateGuideMonsterDrops = "guide_monster_drops"
 	StateGuideAutoPlay     = "guide_autoplay"
 	StateGuideQuests       = "guide_quests"
+
+	StateTownMain               = "town_main"
+	StateTownInn                = "town_inn"
+	StateTownInnSleep           = "town_inn_sleep"
+	StateTownInnHireGuard       = "town_inn_hire_guard"
+	StateTownInnViewGuests      = "town_inn_view_guests"
+	StateTownInnAttackGuest     = "town_inn_attack_guest"
+	StateTownMayor              = "town_mayor"
+	StateTownMayorChallenge     = "town_mayor_challenge"
+	StateTownMayorMenu          = "town_mayor_menu"
+	StateTownMayorSetTax        = "town_mayor_set_tax"
+	StateTownMayorCreateQuest   = "town_mayor_create_quest"
+	StateTownMayorCreateQuestAmount = "town_mayor_create_quest_amount"
+	StateTownMayorCreateQuestReward = "town_mayor_create_quest_reward"
+	StateTownMayorHireGuard     = "town_mayor_hire_guard"
+	StateTownMayorHireMonster   = "town_mayor_hire_monster"
+	StateTownFetchQuests        = "town_fetch_quests"
 )
 
 // CombatContext tracks turn-by-turn combat state.
@@ -85,6 +102,12 @@ type CombatContext struct {
 	AutoPlayWins   int
 	AutoPlayDeaths int
 	AutoPlayXP     int
+
+	// PvP / Town fields
+	IsPvP               bool
+	PvPTargetGuest      *models.InnGuest
+	IsMayorChallenge    bool
+	MayorChallengePhase int // 0=guards, 1=monsters, 2=mayor
 }
 
 // GameSession represents a connected player's session.
@@ -103,4 +126,10 @@ type GameSession struct {
 	SelectedGuardIdx    int
 	SelectedSkillIdx    int
 	SelectedVillagerIdx int
+
+	// Town context
+	SelectedTown         *models.Town
+	PvPTargetGuest       *models.InnGuest
+	TownQuestResource    string
+	TownQuestAmount      int
 }

@@ -27,6 +27,12 @@ var VillagerLastNames = []string{
 	"Underhill", "Valesong", "Whitmore", "Yarrow", "Copperfield", "Duskmantle",
 }
 
+var MayorNames = []string{
+	"Lord Aldric", "Magistrate Elara", "Governor Thane", "Regent Mira",
+	"Steward Fenwick", "Provost Callum", "Chancellor Isolde", "Prefect Rowan",
+	"Warden Lysander", "Consul Daphne",
+}
+
 var GuardNames = []string{
 	"Ser Marcus", "Captain Elena", "Knight Roland", "Dame Victoria", "Guard Captain Thorne",
 	"Paladin Cedric", "Sentinel Aria", "Defender Gareth", "Shield-Bearer Lyra", "Warden Drake",

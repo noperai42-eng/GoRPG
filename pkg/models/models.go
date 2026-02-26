@@ -249,3 +249,80 @@ type SkillScrollData struct {
 	CanBeCrafted  bool  `json:"can_be_crafted"`
 	CraftingValue int   `json:"crafting_value"`
 }
+
+// Town is the shared town record (one per game world).
+type Town struct {
+	Name        string            `json:"name"`
+	InnGuests   []InnGuest        `json:"inn_guests"`
+	Mayor       *MayorData        `json:"mayor"`
+	Treasury    map[string]int    `json:"treasury"`
+	TaxRate     int               `json:"tax_rate"`
+	FetchQuests []FetchQuest      `json:"fetch_quests"`
+	AttackLog   []TownAttackLog   `json:"attack_log"`
+}
+
+// InnGuest is a snapshot of a sleeping player for async PvP.
+type InnGuest struct {
+	AccountID     int64                  `json:"account_id"`
+	CharacterName string                 `json:"character_name"`
+	CheckInTime   int64                  `json:"check_in_time"`
+	GoldPaid      int                    `json:"gold_paid"`
+	HiredGuards   []Guard                `json:"hired_guards"`
+	Level         int                    `json:"level"`
+	HP            int                    `json:"hp"`
+	MaxHP         int                    `json:"max_hp"`
+	MP            int                    `json:"mp"`
+	MaxMP         int                    `json:"max_mp"`
+	SP            int                    `json:"sp"`
+	MaxSP         int                    `json:"max_sp"`
+	AttackRolls   int                    `json:"attack_rolls"`
+	DefenseRolls  int                    `json:"defense_rolls"`
+	StatsMod      StatMod                `json:"stats_mod"`
+	EquipmentMap  map[int]Item           `json:"equipment_map"`
+	LearnedSkills []Skill                `json:"learned_skills"`
+	Resistances   map[DamageType]float64 `json:"resistances"`
+}
+
+// MayorData represents the town mayor (NPC or player).
+type MayorData struct {
+	IsNPC         bool                   `json:"is_npc"`
+	AccountID     int64                  `json:"account_id"`
+	CharacterName string                 `json:"character_name"`
+	NPCName       string                 `json:"npc_name"`
+	Level         int                    `json:"level"`
+	Guards        []Guard                `json:"guards"`
+	Monsters      []Monster              `json:"monsters"`
+	HP            int                    `json:"hp"`
+	MaxHP         int                    `json:"max_hp"`
+	AttackRolls   int                    `json:"attack_rolls"`
+	DefenseRolls  int                    `json:"defense_rolls"`
+	StatsMod      StatMod                `json:"stats_mod"`
+	EquipmentMap  map[int]Item           `json:"equipment_map"`
+	LearnedSkills []Skill                `json:"learned_skills"`
+	Resistances   map[DamageType]float64 `json:"resistances"`
+}
+
+// FetchQuest is a mayor-created resource delivery quest.
+type FetchQuest struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Resource    string `json:"resource"`
+	Amount      int    `json:"amount"`
+	RewardGold  int    `json:"reward_gold"`
+	RewardXP    int    `json:"reward_xp"`
+	CreatedBy   string `json:"created_by"`
+	ClaimedBy   string `json:"claimed_by"`
+	Completed   bool   `json:"completed"`
+	Active      bool   `json:"active"`
+}
+
+// TownAttackLog records PvP and mayor challenge events.
+type TownAttackLog struct {
+	AttackerName string `json:"attacker_name"`
+	TargetName   string `json:"target_name"`
+	AttackType   string `json:"attack_type"`
+	Success      bool   `json:"success"`
+	Timestamp    int64  `json:"timestamp"`
+	Details      string `json:"details"`
+}

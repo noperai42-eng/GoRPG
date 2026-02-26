@@ -998,6 +998,47 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		}
 	}
 
+	// PvP victory
+	if combat.IsPvP {
+		e.resolvePvPWin(session, msgs)
+		msgs = append(msgs, Msg("PvP Victory! You looted items from the sleeping player.", "loot"))
+
+		session.State = StateTownMain
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "town_main", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("init", "Return to Town")},
+		}
+	}
+
+	// Mayor challenge victory
+	if combat.IsMayorChallenge {
+		var done bool
+		msgs, done = e.resolveMayorChallengeWin(session, msgs)
+		if !done {
+			// Advance to next phase
+			town := session.SelectedTown
+			if town == nil {
+				t, loadErr := e.loadOrCreateTown(session)
+				if loadErr == nil {
+					town = t
+				}
+			}
+			if town != nil {
+				return e.startMayorChallengePhase(session, town, combat.MayorChallengePhase)
+			}
+		}
+
+		session.State = StateTownMain
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "town_main", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("init", "Return to Town")},
+		}
+	}
+
 	// If skill guardian, offer reward choice
 	if mob.IsSkillGuardian {
 		msgs = append(msgs, Msg("SKILL GUARDIAN DEFEATED!", "narrative"))
@@ -1067,6 +1108,46 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 		if village, exists := session.GameState.Villages[player.VillageName]; exists {
 			game.ProcessGuardRecovery(&village)
 			session.GameState.Villages[player.VillageName] = village
+		}
+	}
+
+	// PvP defeat
+	if combat.IsPvP {
+		e.resolvePvPLoss(session, msgs)
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.ManaRemaining = player.ManaTotal
+		player.StaminaRemaining = player.StaminaTotal
+		player.Resurrections++
+		player.StatusEffects = []models.StatusEffect{}
+		msgs = append(msgs, Msg(fmt.Sprintf("%s has been resurrected. (Resurrection #%d)", player.Name, player.Resurrections), "system"))
+		msgs = append(msgs, Msg("Your inn attack failed. The target's defenses held.", "narrative"))
+
+		session.State = StateTownMain
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "town_main", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("init", "Return to Town")},
+		}
+	}
+
+	// Mayor challenge defeat
+	if combat.IsMayorChallenge {
+		e.resolveMayorChallengeLoss(session, msgs)
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.ManaRemaining = player.ManaTotal
+		player.StaminaRemaining = player.StaminaTotal
+		player.Resurrections++
+		player.StatusEffects = []models.StatusEffect{}
+		msgs = append(msgs, Msg(fmt.Sprintf("%s has been resurrected. (Resurrection #%d)", player.Name, player.Resurrections), "system"))
+		msgs = append(msgs, Msg("Your challenge against the mayor has failed.", "narrative"))
+
+		session.State = StateTownMain
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "town_main", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("init", "Return to Town")},
 		}
 	}
 

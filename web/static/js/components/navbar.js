@@ -5,6 +5,7 @@ function navbar() {
             { id: 'hub', label: 'Hub', icon: '' },
             { id: 'map', label: 'Map', icon: '' },
             { id: 'village', label: 'Village', icon: '' },
+            { id: 'town', label: 'Town', icon: '' },
             { id: 'quests', label: 'Quests', icon: '' },
         ],
 
@@ -19,6 +20,7 @@ function navbar() {
             this.$store.game.player = null;
             this.$store.game.combat = null;
             this.$store.game.village = null;
+            this.$store.game.town = null;
             this.$store.game.activeTab = 'hub';
         }
     };

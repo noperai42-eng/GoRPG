@@ -279,6 +279,36 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		StateGuideCrafting, StateGuideMonsterDrops, StateGuideAutoPlay,
 		StateGuideQuests:
 		return e.handleGuideTopic(session, cmd)
+	case StateTownMain:
+		return e.handleTownMain(session, cmd)
+	case StateTownInn:
+		return e.handleTownInn(session, cmd)
+	case StateTownInnSleep:
+		return e.handleTownInnSleep(session, cmd)
+	case StateTownInnHireGuard:
+		return e.handleTownInnHireGuard(session, cmd)
+	case StateTownInnViewGuests:
+		return e.handleTownInnViewGuests(session, cmd)
+	case StateTownMayor:
+		return e.handleTownMayor(session, cmd)
+	case StateTownMayorChallenge:
+		return e.handleTownMayorChallenge(session, cmd)
+	case StateTownMayorMenu:
+		return e.handleTownMayorMenu(session, cmd)
+	case StateTownMayorSetTax:
+		return e.handleTownMayorSetTax(session, cmd)
+	case StateTownMayorCreateQuest:
+		return e.handleTownMayorCreateQuest(session, cmd)
+	case StateTownMayorCreateQuestAmount:
+		return e.handleTownMayorCreateQuestAmount(session, cmd)
+	case StateTownMayorCreateQuestReward:
+		return e.handleTownMayorCreateQuestReward(session, cmd)
+	case StateTownMayorHireGuard:
+		return e.handleTownMayorHireGuard(session, cmd)
+	case StateTownMayorHireMonster:
+		return e.handleTownMayorHireMonster(session, cmd)
+	case StateTownFetchQuests:
+		return e.handleTownFetchQuests(session, cmd)
 	default:
 		return ErrorResponse(fmt.Sprintf("Unknown state: %s", session.State))
 	}
@@ -372,6 +402,7 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 		Opt("8", "AUTO-PLAY MODE"),
 		Opt("9", "Quest Log"),
 		Opt("10", "Village Management"),
+		Opt("11", "Town"),
 		Opt("exit", "Exit Game"),
 	}
 

@@ -5,15 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RPG Game</title>
     <style>[x-cloak] { display: none !important; }</style>
-    <link rel="stylesheet" href="css/variables.css?v=3">
-    <link rel="stylesheet" href="css/layout.css?v=3">
-    <link rel="stylesheet" href="css/auth.css?v=3">
-    <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/hub.css?v=3">
-    <link rel="stylesheet" href="css/map.css?v=3">
-    <link rel="stylesheet" href="css/combat.css?v=3">
-    <link rel="stylesheet" href="css/village.css?v=3">
-    <link rel="stylesheet" href="css/quests.css?v=3">
+    <link rel="stylesheet" href="css/variables.css?v=4">
+    <link rel="stylesheet" href="css/layout.css?v=4">
+    <link rel="stylesheet" href="css/auth.css?v=4">
+    <link rel="stylesheet" href="css/components.css?v=4">
+    <link rel="stylesheet" href="css/hub.css?v=4">
+    <link rel="stylesheet" href="css/map.css?v=4">
+    <link rel="stylesheet" href="css/combat.css?v=4">
+    <link rel="stylesheet" href="css/village.css?v=4">
+    <link rel="stylesheet" href="css/quests.css?v=4">
+    <link rel="stylesheet" href="css/town.css?v=4">
 </head>
 <body x-data x-cloak>
 <div id="app">
@@ -517,6 +518,137 @@
                 </div>
             </div>
 
+            <!-- ===== TOWN TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'town' && !$store.game.inCombat" x-data="townScreen()">
+                <!-- No town yet -->
+                <div x-show="!hasTown && !isTownScreen" style="text-align: center; padding: 2rem;">
+                    <h2 style="color: var(--text-secondary); margin-bottom: 1rem;">Town</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;">Visit the shared town to rest at the Inn, meet the Mayor, and take on fetch quests.</p>
+                    <button class="btn btn-primary" @click="enterTown">Enter Town</button>
+                </div>
+
+                <!-- Town loaded -->
+                <div x-show="hasTown || isTownScreen">
+                    <div class="town-header" x-show="t">
+                        <h2 x-text="t ? t.name : 'Town'"></h2>
+                        <div class="town-header-stats" x-show="t">
+                            <span x-text="'Tax Rate: ' + (t ? t.tax_rate : 0) + '%'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tabs -->
+                    <div class="sub-tabs" x-show="t">
+                        <template x-for="st in subTabs" :key="st.id">
+                            <button class="sub-tab" :class="{ active: subTab === st.id }" @click="subTab = st.id" x-text="st.label"></button>
+                        </template>
+                    </div>
+
+                    <!-- Inn -->
+                    <div x-show="subTab === 'inn' && t" class="town-content">
+                        <div class="card">
+                            <div class="section-header">Inn Guests</div>
+                            <div class="guest-list">
+                                <template x-for="(guest, i) in guests" :key="i">
+                                    <div class="guest-card" :class="{ 'own-guest': guest.is_own }">
+                                        <div class="guest-info">
+                                            <span class="guest-name" x-text="guest.character_name"></span>
+                                            <span class="guest-meta" x-text="'Level ' + guest.level + ' | ' + guest.guard_count + ' guard' + (guest.guard_count !== 1 ? 's' : '')"></span>
+                                        </div>
+                                        <div class="guest-action" x-show="!guest.is_own">
+                                            <button class="btn btn-sm btn-secondary" @click="selectOption(String(i + 1))" title="Attack this guest">Attack</button>
+                                        </div>
+                                        <div x-show="guest.is_own" style="font-size: 0.75rem; color: var(--text-muted);">(You)</div>
+                                    </div>
+                                </template>
+                                <div x-show="guests.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">The inn is empty.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mayor -->
+                    <div x-show="subTab === 'mayor' && t" class="town-content">
+                        <div class="mayor-panel" x-show="mayor">
+                            <div class="mayor-title" x-text="mayor && mayor.is_npc ? 'NPC Mayor' : 'Player Mayor'"></div>
+                            <div class="mayor-name" x-text="mayor ? mayor.name : ''"></div>
+                            <div class="mayor-stats">
+                                <span>Level: <strong x-text="mayor ? mayor.level : 0"></strong></span>
+                                <span>Guards: <strong x-text="mayor ? mayor.guard_count : 0"></strong></span>
+                                <span>Monsters: <strong x-text="mayor ? mayor.monster_count : 0"></strong></span>
+                            </div>
+                        </div>
+
+                        <!-- Treasury (mayor only) -->
+                        <div class="card" x-show="isMayor && Object.keys(treasury).length > 0" style="margin-top: 0.75rem;">
+                            <div class="section-header">Treasury</div>
+                            <div class="treasury-grid">
+                                <template x-for="[name, amount] in Object.entries(treasury)" :key="name">
+                                    <div class="treasury-item">
+                                        <div class="treasury-name" x-text="name"></div>
+                                        <div class="treasury-amount" x-text="amount"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fetch Quests -->
+                    <div x-show="subTab === 'quests' && t" class="town-content">
+                        <div class="fetch-quest-list">
+                            <template x-for="quest in fetchQuests" :key="quest.id">
+                                <div class="fetch-quest-card">
+                                    <div class="fetch-quest-header">
+                                        <span class="fetch-quest-name" x-text="quest.name"></span>
+                                        <span class="fetch-quest-reward" x-text="quest.reward_gold + 'g / ' + quest.reward_xp + 'xp'"></span>
+                                    </div>
+                                    <div class="fetch-quest-desc" x-text="quest.description"></div>
+                                    <div class="fetch-quest-req" x-text="'Requires: ' + quest.amount + ' ' + quest.resource"></div>
+                                    <div class="fetch-quest-claimed" x-show="quest.claimed_by" x-text="quest.completed ? 'Completed by ' + quest.claimed_by : 'Claimed by ' + quest.claimed_by"></div>
+                                </div>
+                            </template>
+                            <div x-show="fetchQuests.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No fetch quests available.</div>
+                        </div>
+                    </div>
+
+                    <!-- Attack Log -->
+                    <div x-show="subTab === 'log' && t" class="town-content">
+                        <div class="attack-log-list">
+                            <template x-for="(entry, i) in attackLog" :key="i">
+                                <div class="attack-log-entry" :class="entry.success ? 'success' : 'failure'">
+                                    <div class="attack-log-names">
+                                        <span x-text="entry.attacker_name"></span>
+                                        <span style="color: var(--text-muted);"> attacked </span>
+                                        <span x-text="entry.target_name"></span>
+                                        <span style="margin-left: 0.5rem; font-size: 0.75rem; color: var(--text-muted);" x-text="entry.attack_type === 'mayor_challenge' ? '(Mayor Challenge)' : '(Inn)'"></span>
+                                    </div>
+                                    <div class="attack-log-details">
+                                        <span :style="entry.success ? 'color: var(--color-heal)' : 'color: var(--color-error)'" x-text="entry.success ? 'Victory' : 'Defeat'"></span>
+                                        <span x-show="entry.details" x-text="' - ' + entry.details"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="attackLog.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No attacks recorded yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Server options for town -->
+                    <div x-show="isTownScreen && g.options.length > 0" class="options-panel" style="margin-top: 1rem;">
+                        <template x-for="opt in g.options" :key="opt.key">
+                            <button class="option-btn" :disabled="!opt.enabled" @click="selectOption(opt.key)" x-text="opt.label"></button>
+                        </template>
+                    </div>
+
+                    <!-- Prompt input for town -->
+                    <div x-show="isTownScreen && g.prompt" style="margin-top: 0.75rem; padding: 0 0.75rem;">
+                        <form @submit.prevent="submitPrompt($refs.townPromptInput.value); $refs.townPromptInput.value = ''">
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" x-ref="townPromptInput" :placeholder="g.prompt" style="flex: 1;">
+                                <button class="btn btn-primary" type="submit">Submit</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <!-- ===== QUESTS TAB ===== -->
             <div class="screen-container" x-show="$store.game.activeTab === 'quests' && !$store.game.inCombat" x-data="questsScreen()">
                 <div class="quests-header">
@@ -768,16 +900,17 @@
 </script>
 
 <script src="alpine.min.js" defer></script>
-<script src="js/auth.js?v=3"></script>
-<script src="js/websocket.js?v=3"></script>
-<script src="js/store.js?v=3"></script>
-<script src="js/components/navbar.js?v=3"></script>
-<script src="js/components/toasts.js?v=3"></script>
-<script src="js/components/modals.js?v=3"></script>
-<script src="js/screens/hub.js?v=3"></script>
-<script src="js/screens/map.js?v=3"></script>
-<script src="js/screens/combat.js?v=3"></script>
-<script src="js/screens/village.js?v=3"></script>
-<script src="js/screens/quests.js?v=3"></script>
+<script src="js/auth.js?v=4"></script>
+<script src="js/websocket.js?v=4"></script>
+<script src="js/store.js?v=4"></script>
+<script src="js/components/navbar.js?v=4"></script>
+<script src="js/components/toasts.js?v=4"></script>
+<script src="js/components/modals.js?v=4"></script>
+<script src="js/screens/hub.js?v=4"></script>
+<script src="js/screens/map.js?v=4"></script>
+<script src="js/screens/combat.js?v=4"></script>
+<script src="js/screens/village.js?v=4"></script>
+<script src="js/screens/quests.js?v=4"></script>
+<script src="js/screens/town.js?v=4"></script>
 </body>
 </html>

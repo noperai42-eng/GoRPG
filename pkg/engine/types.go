@@ -47,6 +47,7 @@ type StateData struct {
 	Player  *PlayerState `json:"player,omitempty"`
 	Combat  *CombatView  `json:"combat,omitempty"`
 	Village *VillageView `json:"village,omitempty"`
+	Town    *TownView    `json:"town,omitempty"`
 }
 
 // --- View structs for enriched frontend state ---
@@ -573,6 +574,143 @@ func MakeVillageView(village *models.Village) *VillageView {
 	}
 
 	return vv
+}
+
+// --- Town view structs ---
+
+// TownView represents town state for the frontend.
+type TownView struct {
+	Name           string           `json:"name"`
+	TaxRate        int              `json:"tax_rate"`
+	Treasury       map[string]int   `json:"treasury,omitempty"`
+	Guests         []InnGuestView   `json:"guests"`
+	Mayor          *MayorView       `json:"mayor"`
+	FetchQuests    []FetchQuestView `json:"fetch_quests"`
+	IsCurrentMayor bool             `json:"is_current_mayor"`
+	AttackLog      []AttackLogView  `json:"attack_log"`
+}
+
+// InnGuestView represents an inn guest for the frontend.
+type InnGuestView struct {
+	CharacterName string `json:"character_name"`
+	Level         int    `json:"level"`
+	GuardCount    int    `json:"guard_count"`
+	IsOwn         bool   `json:"is_own"`
+}
+
+// MayorView represents the mayor for the frontend.
+type MayorView struct {
+	Name       string `json:"name"`
+	IsNPC      bool   `json:"is_npc"`
+	Level      int    `json:"level"`
+	GuardCount int    `json:"guard_count"`
+	MonsterCount int  `json:"monster_count"`
+}
+
+// FetchQuestView represents a fetch quest for the frontend.
+type FetchQuestView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Resource    string `json:"resource"`
+	Amount      int    `json:"amount"`
+	RewardGold  int    `json:"reward_gold"`
+	RewardXP    int    `json:"reward_xp"`
+	ClaimedBy   string `json:"claimed_by"`
+	Completed   bool   `json:"completed"`
+}
+
+// AttackLogView represents an attack log entry for the frontend.
+type AttackLogView struct {
+	AttackerName string `json:"attacker_name"`
+	TargetName   string `json:"target_name"`
+	AttackType   string `json:"attack_type"`
+	Success      bool   `json:"success"`
+	Details      string `json:"details"`
+}
+
+// MakeTownView builds a TownView from a models.Town for the frontend.
+func MakeTownView(town *models.Town, accountID int64, charName string) *TownView {
+	if town == nil {
+		return nil
+	}
+
+	tv := &TownView{
+		Name:    town.Name,
+		TaxRate: town.TaxRate,
+	}
+
+	// Check if current player is mayor
+	isMayor := false
+	if town.Mayor != nil && !town.Mayor.IsNPC && town.Mayor.AccountID == accountID && town.Mayor.CharacterName == charName {
+		isMayor = true
+		tv.Treasury = town.Treasury
+	}
+	tv.IsCurrentMayor = isMayor
+
+	// Mayor view
+	if town.Mayor != nil {
+		name := town.Mayor.NPCName
+		if !town.Mayor.IsNPC {
+			name = town.Mayor.CharacterName
+		}
+		tv.Mayor = &MayorView{
+			Name:         name,
+			IsNPC:        town.Mayor.IsNPC,
+			Level:        town.Mayor.Level,
+			GuardCount:   len(town.Mayor.Guards),
+			MonsterCount: len(town.Mayor.Monsters),
+		}
+	}
+
+	// Guests
+	tv.Guests = make([]InnGuestView, 0, len(town.InnGuests))
+	for _, guest := range town.InnGuests {
+		tv.Guests = append(tv.Guests, InnGuestView{
+			CharacterName: guest.CharacterName,
+			Level:         guest.Level,
+			GuardCount:    len(guest.HiredGuards),
+			IsOwn:         guest.AccountID == accountID && guest.CharacterName == charName,
+		})
+	}
+
+	// Fetch quests
+	tv.FetchQuests = make([]FetchQuestView, 0)
+	for _, fq := range town.FetchQuests {
+		if !fq.Active {
+			continue
+		}
+		tv.FetchQuests = append(tv.FetchQuests, FetchQuestView{
+			ID:          fq.ID,
+			Name:        fq.Name,
+			Description: fq.Description,
+			Resource:    fq.Resource,
+			Amount:      fq.Amount,
+			RewardGold:  fq.RewardGold,
+			RewardXP:    fq.RewardXP,
+			ClaimedBy:   fq.ClaimedBy,
+			Completed:   fq.Completed,
+		})
+	}
+
+	// Attack log (last 20)
+	tv.AttackLog = make([]AttackLogView, 0)
+	start := 0
+	if len(town.AttackLog) > 20 {
+		start = len(town.AttackLog) - 20
+	}
+	for i := len(town.AttackLog) - 1; i >= start; i-- {
+		log := town.AttackLog[i]
+		tv.AttackLog = append(tv.AttackLog, AttackLogView{
+			AttackerName: log.AttackerName,
+			TargetName:   log.TargetName,
+			AttackType:   log.AttackType,
+			Success:      log.Success,
+			Details:      log.Details,
+		})
+	}
+
+	return tv
 }
 
 func MakeCombatView(session *GameSession) *CombatView {
