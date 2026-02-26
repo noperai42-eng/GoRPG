@@ -205,8 +205,8 @@ func TestLevelUp(t *testing.T) {
 	originalLevel := char.Level
 	originalHP := char.HitpointsTotal
 
-	// Give enough XP to level up
-	char.Experience = 100
+	// Give enough XP to level up (PlayerExpToLevel(1) = 310)
+	char.Experience = PlayerExpToLevel(1)
 	LevelUp(&char)
 
 	if char.Level <= originalLevel {

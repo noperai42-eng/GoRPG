@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"rpg-game/pkg/data"
+	"rpg-game/pkg/game"
 	"rpg-game/pkg/models"
 )
 
@@ -303,7 +304,7 @@ func MakePlayerState(p *models.Character) *PlayerState {
 		Name:          p.Name,
 		Level:         p.Level,
 		Experience:    p.Experience,
-		ExpToLevel:    p.Level * 100,
+		ExpToLevel:    game.PlayerExpToLevel(p.Level),
 		HP:            p.HitpointsRemaining,
 		MaxHP:         p.HitpointsTotal,
 		MP:            p.ManaRemaining,

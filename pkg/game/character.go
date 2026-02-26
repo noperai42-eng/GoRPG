@@ -50,30 +50,31 @@ func GenerateCharacter(name string, level int, rank int) models.Character {
 	}
 }
 
+// PlayerExpToLevel returns the total XP needed to reach the next level.
+// Scaled so ~30 even-level kills at low levels, increasing with level.
+func PlayerExpToLevel(level int) int {
+	return level * (300 + level*10)
+}
+
 func LevelUp(player *models.Character) {
-	if player.Experience >= (player.Level * 100) {
+	for player.Experience >= PlayerExpToLevel(player.Level) {
+		player.Level++
+		player.HitpointsNatural += MultiRoll(1)
+		player.HitpointsRemaining = player.HitpointsNatural
+		player.ManaNatural += MultiRoll(1) + 5
+		player.ManaTotal = player.ManaNatural
+		player.ManaRemaining = player.ManaTotal
+		player.StaminaNatural += MultiRoll(1) + 5
+		player.StaminaTotal = player.StaminaNatural
+		player.StaminaRemaining = player.StaminaTotal
+		player.AttackRolls = player.Level/10 + 1
+		player.DefenseRolls = player.Level/10 + 1
+		player.StatsMod = CalculateItemMods(player.EquipmentMap)
+		player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
+		fmt.Printf("LEVEL UP!!! Now level %d!\n", player.Level)
+		fmt.Printf("HP: %d, MP: %d, SP: %d\n", player.HitpointsTotal, player.ManaTotal, player.StaminaTotal)
 
-		levelsToGrant := ((player.Level * 100) - player.ExpSinceLevel) / 100
-		for i := 0; i < levelsToGrant; i++ {
-			player.Level++
-			player.HitpointsNatural += MultiRoll(1)
-			player.HitpointsRemaining = player.HitpointsNatural
-			player.ManaNatural += MultiRoll(1) + 5
-			player.ManaTotal = player.ManaNatural
-			player.ManaRemaining = player.ManaTotal
-			player.StaminaNatural += MultiRoll(1) + 5
-			player.StaminaTotal = player.StaminaNatural
-			player.StaminaRemaining = player.StaminaTotal
-			player.AttackRolls = player.Level/10 + 1
-			player.DefenseRolls = player.Level/10 + 1
-			player.StatsMod = CalculateItemMods(player.EquipmentMap)
-			player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
-			fmt.Printf("LEVEL UP!!! Now level %d!\n", player.Level)
-			fmt.Printf("HP: %d, MP: %d, SP: %d\n", player.HitpointsTotal, player.ManaTotal, player.StaminaTotal)
-
-			// Skills are now learned from defeating Skill Guardians, not automatic
-		}
-
+		// Skills are now learned from defeating Skill Guardians, not automatic
 	}
 }
 
