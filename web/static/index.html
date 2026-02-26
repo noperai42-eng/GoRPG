@@ -443,17 +443,17 @@
                     <div x-show="subTab === 'overview' && v" class="village-content">
                         <div class="card">
                             <div class="bar-container">
-                                <div class="bar-label"><span class="bar-label-name">Village XP</span><span class="bar-label-value" x-text="v.experience + '/' + v.exp_to_level"></span></div>
-                                <div class="bar bar-sm"><div class="bar-fill xp" :style="'width:' + barPct(v.experience, v.exp_to_level)"></div></div>
+                                <div class="bar-label"><span class="bar-label-name">Village XP</span><span class="bar-label-value" x-text="(v?.experience || 0) + '/' + (v?.exp_to_level || 0)"></span></div>
+                                <div class="bar bar-sm"><div class="bar-fill xp" :style="'width:' + barPct(v?.experience || 0, v?.exp_to_level || 1)"></div></div>
                             </div>
-                            <div class="stat-row"><span class="stat-label">Villagers</span><span class="stat-value" x-text="v.villagers ? v.villagers.length : 0"></span></div>
-                            <div class="stat-row"><span class="stat-label">Guards</span><span class="stat-value" x-text="v.guards ? v.guards.length : 0"></span></div>
-                            <div class="stat-row"><span class="stat-label">Defense Level</span><span class="stat-value" x-text="v.defense_level"></span></div>
+                            <div class="stat-row"><span class="stat-label">Villagers</span><span class="stat-value" x-text="v?.villagers ? v.villagers.length : 0"></span></div>
+                            <div class="stat-row"><span class="stat-label">Guards</span><span class="stat-value" x-text="v?.guards ? v.guards.length : 0"></span></div>
+                            <div class="stat-row"><span class="stat-label">Defense Level</span><span class="stat-value" x-text="v?.defense_level || 0"></span></div>
                         </div>
 
-                        <div class="card" x-show="v.resource_per_tick && Object.keys(v.resource_per_tick).length > 0">
+                        <div class="card" x-show="v?.resource_per_tick && Object.keys(v.resource_per_tick).length > 0">
                             <div class="section-header">Resource Income</div>
-                            <template x-for="[name, amount] in Object.entries(v.resource_per_tick || {})" :key="name">
+                            <template x-for="[name, amount] in Object.entries(v?.resource_per_tick || {})" :key="name">
                                 <div class="stat-row"><span class="stat-label" x-text="name"></span><span class="stat-value" x-text="'+' + amount + '/tick'"></span></div>
                             </template>
                         </div>
@@ -462,7 +462,7 @@
                     <!-- Villagers -->
                     <div x-show="subTab === 'villagers' && v" class="village-content">
                         <div class="villager-list">
-                            <template x-for="(vil, i) in (v.villagers || [])" :key="i">
+                            <template x-for="(vil, i) in (v?.villagers || [])" :key="i">
                                 <div class="villager-row">
                                     <div class="villager-info">
                                         <span class="villager-name" x-text="vil.name"></span>
@@ -473,14 +473,14 @@
                                     </div>
                                 </div>
                             </template>
-                            <div x-show="!v.villagers || v.villagers.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No villagers yet.</div>
+                            <div x-show="!v?.villagers || v.villagers.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No villagers yet.</div>
                         </div>
                     </div>
 
                     <!-- Guards -->
                     <div x-show="subTab === 'guards' && v" class="village-content">
                         <div class="guard-list">
-                            <template x-for="(guard, i) in (v.guards || [])" :key="i">
+                            <template x-for="(guard, i) in (v?.guards || [])" :key="i">
                                 <div class="guard-card" :class="{ injured: guard.injured }">
                                     <div class="guard-card-header">
                                         <span class="guard-card-name" x-text="guard.name"></span>
@@ -497,7 +497,7 @@
                                     </div>
                                 </div>
                             </template>
-                            <div x-show="!v.guards || v.guards.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No guards hired yet.</div>
+                            <div x-show="!v?.guards || v.guards.length === 0" style="color: var(--text-muted); padding: 1rem; text-align: center;">No guards hired yet.</div>
                         </div>
                     </div>
 
@@ -897,6 +897,7 @@
     function loadCharacters() {
         // No-op: character screen handles its own loading via x-effect
     }
+
 </script>
 
 <script src="alpine.min.js" defer></script>
