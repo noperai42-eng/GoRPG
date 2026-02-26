@@ -444,18 +444,28 @@ func GenerateSkillGuardian(skill models.Skill, level int, rank int) models.Monst
 	guardianName := data.SkillGuardianNames[rand.Intn(len(data.SkillGuardianNames))]
 	baseMob := GenerateMonster(guardianName, level, rank)
 
-	baseMob.HitpointsNatural = int(float64(baseMob.HitpointsNatural) * 2.0)
+	// Guardians are elite — equivalent to fighting 3-4 monsters at once
+	baseMob.HitpointsNatural = int(float64(baseMob.HitpointsNatural) * 3.5)
 	baseMob.HitpointsTotal = baseMob.HitpointsNatural
 	baseMob.HitpointsRemaining = baseMob.HitpointsTotal
-	baseMob.AttackRolls = baseMob.AttackRolls + 2
-	baseMob.DefenseRolls = baseMob.DefenseRolls + 2
-	baseMob.ManaTotal = int(float64(baseMob.ManaTotal) * 1.5)
+	baseMob.AttackRolls = baseMob.AttackRolls + 5
+	baseMob.DefenseRolls = baseMob.DefenseRolls + 4
+	baseMob.ManaTotal = int(float64(baseMob.ManaTotal) * 2.5)
 	baseMob.ManaRemaining = baseMob.ManaTotal
-	baseMob.StaminaTotal = int(float64(baseMob.StaminaTotal) * 1.5)
+	baseMob.StaminaTotal = int(float64(baseMob.StaminaTotal) * 2.5)
 	baseMob.StaminaRemaining = baseMob.StaminaTotal
 
-	for i := 0; i < rank+2; i++ {
-		item := GenerateItem(rank + 1)
+	// More equipment at higher rarity
+	numItems := rank + 4
+	if numItems > 8 {
+		numItems = 8
+	}
+	itemRarity := rank + 2
+	if itemRarity > 5 {
+		itemRarity = 5
+	}
+	for i := 0; i < numItems; i++ {
+		item := GenerateItem(itemRarity)
 		EquipBestItem(item, &baseMob.EquipmentMap, &baseMob.Inventory)
 	}
 

@@ -83,7 +83,9 @@
                 this.characters = data.characters || [];
                 if (this.characters.length > 0) {
                     this.selectedChar = this.characters[0];
-                    this.startGame();
+                    if (this.characters.length === 1) {
+                        this.startGame();
+                    }
                 }
             } catch(e) { this.charError = 'Failed to load characters'; this._loaded = false; }
         },
@@ -116,7 +118,7 @@
             this._loaded = false;
             $store.game.screen = 'auth';
         }
-    }" x-effect="if ($store.game.screen === 'characters') loadChars()">
+    }" x-effect="if ($store.game.screen === 'characters') loadChars(); else _loaded = false">
         <div class="char-panel">
             <h2>Select Character</h2>
             <div class="char-list">
@@ -552,7 +554,8 @@
                                     <div class="guest-card" :class="{ 'own-guest': guest.is_own }">
                                         <div class="guest-info">
                                             <span class="guest-name" x-text="guest.character_name"></span>
-                                            <span class="guest-meta" x-text="'Level ' + guest.level + ' | ' + guest.guard_count + ' guard' + (guest.guard_count !== 1 ? 's' : '')"></span>
+                                            <span x-show="guest.is_npc" style="font-size: 0.65rem; background: var(--accent); color: #fff; padding: 1px 5px; border-radius: 3px; margin-left: 4px;">(NPC)</span>
+                                            <span class="guest-meta" x-text="'Level ' + guest.level + ' | ' + guest.guard_count + ' guard' + (guest.guard_count !== 1 ? 's' : '') + (guest.gold_carried > 0 ? ' | ' + guest.gold_carried + ' gold' : '')"></span>
                                         </div>
                                         <div class="guest-action" x-show="!guest.is_own">
                                             <button class="btn btn-sm btn-secondary" @click="selectOption(String(i + 1))" title="Attack this guest">Attack</button>

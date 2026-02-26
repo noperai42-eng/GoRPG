@@ -1000,8 +1000,12 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 
 	// PvP victory
 	if combat.IsPvP {
-		e.resolvePvPWin(session, msgs)
-		msgs = append(msgs, Msg("PvP Victory! You looted items from the sleeping player.", "loot"))
+		goldLooted := e.resolvePvPWin(session, msgs)
+		if goldLooted > 0 {
+			msgs = append(msgs, Msg(fmt.Sprintf("PvP Victory! You looted %d gold and items!", goldLooted), "loot"))
+		} else {
+			msgs = append(msgs, Msg("PvP Victory! You looted items from the sleeping player.", "loot"))
+		}
 
 		session.State = StateTownMain
 		return GameResponse{

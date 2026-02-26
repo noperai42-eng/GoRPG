@@ -28,6 +28,8 @@ func (e *Engine) loadOrCreateTown(session *GameSession) (*models.Town, error) {
 	}
 	// Clean expired guests (24h)
 	game.CleanExpiredGuests(&town, 86400)
+	// Replenish NPC guests if too few
+	game.ReplenishNPCGuests(&town)
 	return &town, nil
 }
 
@@ -400,7 +402,15 @@ func (e *Engine) showGuestList(session *GameSession, town *models.Town) GameResp
 		if len(guest.HiredGuards) > 0 {
 			guardInfo = fmt.Sprintf(" [%d guards]", len(guest.HiredGuards))
 		}
-		label := fmt.Sprintf("%s (Lv%d)%s", guest.CharacterName, guest.Level, guardInfo)
+		npcTag := ""
+		if guest.AccountID == 0 {
+			npcTag = " (NPC)"
+		}
+		goldInfo := ""
+		if guest.GoldCarried > 0 {
+			goldInfo = fmt.Sprintf(" [%d gold]", guest.GoldCarried)
+		}
+		label := fmt.Sprintf("%s (Lv%d)%s%s%s", guest.CharacterName, guest.Level, npcTag, guardInfo, goldInfo)
 
 		isOwn := guest.AccountID == session.AccountID && guest.CharacterName == player.Name
 		if isOwn {
@@ -1303,11 +1313,11 @@ func (e *Engine) completeFetchQuest(session *GameSession, town *models.Town, que
 // Combat resolution helpers for PvP and Mayor Challenge
 // ─────────────────────────────────────────────────────────────────────
 
-// resolvePvPWin handles PvP victory at the inn.
-func (e *Engine) resolvePvPWin(session *GameSession, msgs []GameMessage) {
+// resolvePvPWin handles PvP victory at the inn. Returns gold looted (non-zero for NPCs).
+func (e *Engine) resolvePvPWin(session *GameSession, msgs []GameMessage) int {
 	town, err := e.loadOrCreateTown(session)
 	if err != nil {
-		return
+		return 0
 	}
 
 	combat := session.Combat
@@ -1315,7 +1325,7 @@ func (e *Engine) resolvePvPWin(session *GameSession, msgs []GameMessage) {
 	player := session.Player
 
 	if target == nil {
-		return
+		return 0
 	}
 
 	// Transfer 1-3 equipment items from target
@@ -1330,6 +1340,18 @@ func (e *Engine) resolvePvPWin(session *GameSession, msgs []GameMessage) {
 		transferred++
 	}
 
+	// If NPC, award carried gold to player
+	goldLooted := 0
+	if target.AccountID == 0 && target.GoldCarried > 0 {
+		goldLooted = target.GoldCarried
+		goldRes, hasGold := player.ResourceStorageMap["Gold"]
+		if !hasGold {
+			goldRes = models.Resource{Name: "Gold", Stock: 0}
+		}
+		goldRes.Stock += goldLooted
+		player.ResourceStorageMap["Gold"] = goldRes
+	}
+
 	// Remove target from inn
 	kept := []models.InnGuest{}
 	for _, g := range town.InnGuests {
@@ -1340,16 +1362,21 @@ func (e *Engine) resolvePvPWin(session *GameSession, msgs []GameMessage) {
 	town.InnGuests = kept
 
 	// Log the attack
+	details := fmt.Sprintf("%s defeated %s at the inn and looted %d items", player.Name, target.CharacterName, transferred)
+	if goldLooted > 0 {
+		details = fmt.Sprintf("%s defeated %s at the inn and looted %d gold and %d items", player.Name, target.CharacterName, goldLooted, transferred)
+	}
 	town.AttackLog = append(town.AttackLog, models.TownAttackLog{
 		AttackerName: player.Name,
 		TargetName:   target.CharacterName,
 		AttackType:   "inn_guest",
 		Success:      true,
 		Timestamp:    time.Now().Unix(),
-		Details:      fmt.Sprintf("%s defeated %s at the inn and looted %d items", player.Name, target.CharacterName, transferred),
+		Details:      details,
 	})
 
 	e.saveTown(town)
+	return goldLooted
 }
 
 // resolvePvPLoss handles PvP defeat at the inn.

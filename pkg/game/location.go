@@ -56,11 +56,8 @@ func GenerateMonstersForLocation(location *models.Location, game *models.GameSta
 			skillIndex := rand.Intn(len(guardableSkills))
 			guardianSkill := guardableSkills[skillIndex]
 
-			// Generate guardian with appropriate level
-			guardianLevel := location.LevelMax
-			if guardianLevel > 5 {
-				guardianLevel = rand.Intn(guardianLevel-5) + 5 // Level range with minimum
-			}
+			// Guardians spawn above location level — they're elite fights
+			guardianLevel := location.LevelMax + rand.Intn(location.LevelMax/2+1) + 3
 
 			guardian := GenerateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
 			location.Monsters[guardianPos] = guardian

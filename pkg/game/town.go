@@ -10,12 +10,22 @@ import (
 
 const DefaultTownName = "Crossroads"
 
-// GenerateDefaultTown creates a new town with an NPC mayor.
+// GenerateDefaultTown creates a new town with an NPC mayor and NPC inn guests.
 func GenerateDefaultTown(name string) models.Town {
 	mayor := GenerateNPCMayor(10)
+
+	// Seed NPC inn guests at fixed levels
+	npcLevels := []int{3, 5, 8, 12}
+	guests := make([]models.InnGuest, 0, len(npcLevels))
+	for _, lvl := range npcLevels {
+		firstName := data.VillagerFirstNames[rand.Intn(len(data.VillagerFirstNames))]
+		lastName := data.VillagerLastNames[rand.Intn(len(data.VillagerLastNames))]
+		guests = append(guests, GenerateNPCGuest(firstName+" "+lastName, lvl))
+	}
+
 	return models.Town{
 		Name:      name,
-		InnGuests: []models.InnGuest{},
+		InnGuests: guests,
 		Mayor:     &mayor,
 		Treasury: map[string]int{
 			"Gold": 500,
@@ -200,12 +210,101 @@ func CalculateTax(amount int, taxRate int) (int, int) {
 	return amount - taxAmount, taxAmount
 }
 
+// GenerateNPCGuest creates an NPC inn guest with equipment, skills, guards, and gold.
+func GenerateNPCGuest(name string, level int) models.InnGuest {
+	rank := level/3 + 1
+	if rank < 1 {
+		rank = 1
+	}
+
+	baseHP := MultiRoll(rank) + 20
+	baseMP := MultiRoll(rank) + 10
+	baseSP := MultiRoll(rank) + 10
+	attackRolls := (level / 5) + 1
+	defenseRolls := (level / 5) + 1
+
+	resistances := map[models.DamageType]float64{
+		models.Physical:  1.0,
+		models.Fire:      1.0,
+		models.Ice:       1.0,
+		models.Lightning: 1.0,
+		models.Poison:    1.0,
+	}
+
+	equipMap := make(map[int]models.Item)
+	inventory := []models.Item{}
+	numItems := 2 + (level / 5)
+	if numItems > 4 {
+		numItems = 4
+	}
+	for i := 0; i < numItems; i++ {
+		rarity := 1 + (level / 5)
+		if rarity > 5 {
+			rarity = 5
+		}
+		item := GenerateItem(rarity)
+		EquipBestItem(item, &equipMap, &inventory)
+	}
+	statsMod := CalculateItemMods(equipMap)
+
+	skills := AssignMonsterSkills("humanoid", level)
+
+	numGuards := 1 + rand.Intn(2)
+	guards := make([]models.Guard, numGuards)
+	for i := 0; i < numGuards; i++ {
+		guards[i] = GenerateGuard(level)
+	}
+
+	goldCarried := 50 + level*20
+
+	return models.InnGuest{
+		AccountID:     0,
+		CharacterName: name,
+		CheckInTime:   time.Now().Unix(),
+		GoldCarried:   goldCarried,
+		HiredGuards:   guards,
+		Level:         level,
+		HP:            baseHP + statsMod.HitPointMod,
+		MaxHP:         baseHP + statsMod.HitPointMod,
+		MP:            baseMP,
+		MaxMP:         baseMP,
+		SP:            baseSP,
+		MaxSP:         baseSP,
+		AttackRolls:   attackRolls,
+		DefenseRolls:  defenseRolls,
+		StatsMod:      statsMod,
+		EquipmentMap:  equipMap,
+		LearnedSkills: skills,
+		Resistances:   resistances,
+	}
+}
+
+// ReplenishNPCGuests ensures the town has at least 3 NPC guests, filling up to 4.
+func ReplenishNPCGuests(town *models.Town) {
+	npcCount := 0
+	for _, guest := range town.InnGuests {
+		if guest.AccountID == 0 {
+			npcCount++
+		}
+	}
+	for npcCount < 4 {
+		level := rand.Intn(15) + 1
+		firstName := data.VillagerFirstNames[rand.Intn(len(data.VillagerFirstNames))]
+		lastName := data.VillagerLastNames[rand.Intn(len(data.VillagerLastNames))]
+		name := firstName + " " + lastName
+		guest := GenerateNPCGuest(name, level)
+		town.InnGuests = append(town.InnGuests, guest)
+		npcCount++
+	}
+}
+
 // CleanExpiredGuests removes inn guests checked in more than maxAge seconds ago.
+// NPC guests (AccountID == 0) are never expired.
 func CleanExpiredGuests(town *models.Town, maxAge int64) {
 	now := time.Now().Unix()
 	kept := []models.InnGuest{}
 	for _, guest := range town.InnGuests {
-		if now-guest.CheckInTime < maxAge {
+		if guest.AccountID == 0 || now-guest.CheckInTime < maxAge {
 			kept = append(kept, guest)
 		}
 	}

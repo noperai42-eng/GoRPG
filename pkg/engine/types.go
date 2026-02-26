@@ -597,6 +597,8 @@ type InnGuestView struct {
 	Level         int    `json:"level"`
 	GuardCount    int    `json:"guard_count"`
 	IsOwn         bool   `json:"is_own"`
+	IsNPC         bool   `json:"is_npc"`
+	GoldCarried   int    `json:"gold_carried"`
 }
 
 // MayorView represents the mayor for the frontend.
@@ -672,6 +674,8 @@ func MakeTownView(town *models.Town, accountID int64, charName string) *TownView
 			Level:         guest.Level,
 			GuardCount:    len(guest.HiredGuards),
 			IsOwn:         guest.AccountID == accountID && guest.CharacterName == charName,
+			IsNPC:         guest.AccountID == 0,
+			GoldCarried:   guest.GoldCarried,
 		})
 	}
 

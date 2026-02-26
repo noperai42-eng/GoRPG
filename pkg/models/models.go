@@ -267,6 +267,7 @@ type InnGuest struct {
 	CharacterName string                 `json:"character_name"`
 	CheckInTime   int64                  `json:"check_in_time"`
 	GoldPaid      int                    `json:"gold_paid"`
+	GoldCarried   int                    `json:"gold_carried"`
 	HiredGuards   []Guard                `json:"hired_guards"`
 	Level         int                    `json:"level"`
 	HP            int                    `json:"hp"`

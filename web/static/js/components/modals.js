@@ -13,7 +13,7 @@ function modalSystem() {
             const modalScreens = ['harvest_select', 'hunt_count_select', 'hunt_tracking',
                 'combat_guard_prompt', 'combat_skill_reward',
                 'autoplay_speed', 'load_save_char_select',
-                'character_create'];
+                'character_select', 'character_create'];
             return !g.inCombat && !g.prompt && g.options.length > 0 && modalScreens.includes(g.serverScreen);
         },
 
@@ -40,6 +40,7 @@ function modalSystem() {
                 'combat_skill_reward': 'Skill Reward',
                 'autoplay_speed': 'Auto-Play Speed',
                 'load_save_char_select': 'Select Character',
+                'character_select': 'Select Character',
                 'character_create': 'Create Character',
             };
             return titles[s] || 'Choose an Option';
