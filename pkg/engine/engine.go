@@ -178,6 +178,17 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return ErrorResponse("Session not found")
 	}
 
+	// Navbar tab commands work regardless of current session state,
+	// since the frontend tabs can send these from any screen.
+	if cmd.Type == "select" {
+		switch cmd.Value {
+		case "10":
+			return e.handleMainMenu(session, cmd)
+		case "11":
+			return e.handleMainMenu(session, cmd)
+		}
+	}
+
 	switch session.State {
 	case StateInit:
 		return e.handleInit(session)
