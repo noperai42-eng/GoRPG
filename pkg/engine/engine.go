@@ -397,12 +397,9 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 		Opt("3", "Hunt"),
 		Opt("4", "Discovered Locations"),
 		Opt("5", "Player Stats"),
-		Opt("6", "Load Save"),
 		Opt("7", "Player Guide"),
 		Opt("8", "AUTO-PLAY MODE"),
 		Opt("9", "Quest Log"),
-		Opt("10", "Village Management"),
-		Opt("11", "Town"),
 		Opt("exit", "Exit Game"),
 	}
 
