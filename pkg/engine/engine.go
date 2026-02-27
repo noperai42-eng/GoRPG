@@ -378,6 +378,20 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 	}
 }
 
+// saveSession persists session state directly (for use by handlers that already have the session).
+func (e *Engine) saveSession(session *GameSession) {
+	if session.Player != nil {
+		session.GameState.CharactersMap[session.Player.Name] = *session.Player
+	}
+	if e.store != nil && session.AccountID > 0 {
+		e.saveSessionToDB(session)
+		return
+	}
+	if session.SaveFile != "" {
+		game.WriteGameStateToFile(*session.GameState, session.SaveFile)
+	}
+}
+
 // SaveSession saves the current session state. Uses SQLite if available, otherwise file.
 func (e *Engine) SaveSession(sessionID string) error {
 	e.mu.RLock()

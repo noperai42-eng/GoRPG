@@ -314,6 +314,7 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 	case "7": // Stop Hunting - end the hunt chain and return to main menu
 		combat.Turn--
 		combat.ContinuousHunt = false
+		e.saveSession(session)
 		msgs = append(msgs, Msg("You stop hunting and return home.", "system"))
 		session.State = StateMainMenu
 		return GameResponse{
@@ -838,6 +839,9 @@ func (e *Engine) handleCombatSkillReward(session *GameSession, cmd GameCommand) 
 		msgs = append(msgs, Msg(fmt.Sprintf("You received a %s!", scroll.Name), "loot"))
 	}
 
+	// Save after every combat resolution
+	e.saveSession(session)
+
 	// Check if more hunts remain
 	if combat.ContinuousHunt {
 		return e.startNextHunt(session, msgs)
@@ -1167,6 +1171,9 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		}
 	}
 
+	// Save after every combat resolution
+	e.saveSession(session)
+
 	// Check if more hunts remain
 	if combat.ContinuousHunt {
 		return e.startNextHunt(session, msgs)
@@ -1287,6 +1294,9 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 	if combat.IsDungeon {
 		return e.handleDungeonDefeat(session, msgs)
 	}
+
+	// Save after every combat resolution
+	e.saveSession(session)
 
 	// Check if more hunts remain
 	if combat.ContinuousHunt {
