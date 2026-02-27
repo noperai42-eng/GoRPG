@@ -71,6 +71,19 @@ func LevelUp(player *models.Character) {
 		player.DefenseRolls = player.Level/10 + 1
 		player.StatsMod = CalculateItemMods(player.EquipmentMap)
 		player.HitpointsTotal = player.HitpointsNatural + player.StatsMod.HitPointMod
+		// Enforce minimum HP of 1 per level
+		if player.HitpointsTotal < player.Level {
+			player.HitpointsTotal = player.Level
+			player.HitpointsRemaining = player.HitpointsTotal
+		}
+		if player.ManaTotal < player.Level {
+			player.ManaTotal = player.Level
+			player.ManaRemaining = player.ManaTotal
+		}
+		if player.StaminaTotal < player.Level {
+			player.StaminaTotal = player.Level
+			player.StaminaRemaining = player.StaminaTotal
+		}
 		fmt.Printf("LEVEL UP!!! Now level %d!\n", player.Level)
 		fmt.Printf("HP: %d, MP: %d, SP: %d\n", player.HitpointsTotal, player.ManaTotal, player.StaminaTotal)
 

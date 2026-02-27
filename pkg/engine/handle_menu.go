@@ -472,41 +472,9 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 	}
 
 	session.SelectedLocation = locName
-	session.State = StateHuntCountSelect
 
-	return GameResponse{
-		Type:     "menu",
-		Messages: []GameMessage{Msg(fmt.Sprintf("Hunting at %s (%s)", locName, loc.Type), "system")},
-		State:    &StateData{Screen: "hunt_count_select", Player: MakePlayerState(player)},
-		Prompt:   "How Many Hunts? ",
-	}
-}
-
-// handleHuntCountSelect processes the number of hunts and starts tracking or combat.
-func (e *Engine) handleHuntCountSelect(session *GameSession, cmd GameCommand) GameResponse {
-	gs := session.GameState
-	player := session.Player
-
-	huntCount, err := strconv.Atoi(cmd.Value)
-	if err != nil || huntCount <= 0 {
-		return GameResponse{
-			Type:     "menu",
-			Messages: []GameMessage{Msg("Invalid number! Please enter a positive number.", "error")},
-			State:    &StateData{Screen: "hunt_count_select", Player: MakePlayerState(player)},
-			Prompt:   "How Many Hunts? ",
-		}
-	}
-
-	locName := session.SelectedLocation
-	loc, exists := gs.GameLocations[locName]
-	if !exists || len(loc.Monsters) == 0 {
-		session.State = StateMainMenu
-		resp := BuildMainMenuResponse(session)
-		resp.Messages = append([]GameMessage{
-			Msg("Location has no monsters!", "error"),
-		}, resp.Messages...)
-		return resp
-	}
+	// Hunts chain indefinitely until player stops; sentinel value keeps the loop going
+	huntCount := 999999
 
 	// Check if player has Tracking skill
 	hasTracking := false
@@ -520,6 +488,7 @@ func (e *Engine) handleHuntCountSelect(session *GameSession, cmd GameCommand) Ga
 	if hasTracking {
 		session.State = StateHuntTracking
 		msgs := []GameMessage{
+			Msg(fmt.Sprintf("Hunting at %s (%s)", locName, loc.Type), "system"),
 			Msg("TRACKING ACTIVE - Choose your target:", "system"),
 			Msg("============================================================", "system"),
 		}
@@ -543,7 +512,6 @@ func (e *Engine) handleHuntCountSelect(session *GameSession, cmd GameCommand) Ga
 			options = append(options, Opt(strconv.Itoa(idx+1), label))
 		}
 
-		// Store hunt count in combat context temporarily
 		session.Combat = &CombatContext{
 			HuntsRemaining: huntCount,
 			Location:       &loc,
@@ -723,7 +691,6 @@ func buildCombatDisplay(session *GameSession) GameResponse {
 			Msg(fmt.Sprintf("Lv%d %s vs Lv%d %s (%s)%s%s",
 				player.Level, player.Name,
 				mob.Level, mob.Name, mob.MonsterType, rarityTag, guardianTag), "combat"),
-			Msg(fmt.Sprintf("Hunts remaining: %d", c.HuntsRemaining), "system"),
 			Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
 				player.Name,
 				player.HitpointsRemaining, player.HitpointsTotal,

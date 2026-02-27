@@ -107,13 +107,8 @@ func TestSmoke(t *testing.T) {
 
 		sendCommand(t, ws, "select", locKey)
 		resp = readGameResponse(t, ws)
-		requireScreen(t, resp, "hunt_count_select", "hunt location select")
 
-		// Select 1 hunt (input command).
-		sendCommand(t, ws, "input", "1")
-		resp = readGameResponse(t, ws)
-
-		// Should be in combat or hunt_tracking.
+		// Should go directly to combat or hunt_tracking (no hunt count prompt).
 		screen := screenOf(resp)
 		if screen != "combat" && screen != "hunt_tracking" {
 			t.Fatalf("expected combat or hunt_tracking, got %s", screen)
@@ -127,11 +122,22 @@ func TestSmoke(t *testing.T) {
 			}
 		}
 
-		// Fight until combat ends (attack repeatedly).
+		// Fight until first combat ends (attack repeatedly).
+		// Hunts now chain indefinitely, so after combat we use "Stop Hunting" to exit.
+		fightDone := false
 		for i := 0; i < 100; i++ {
 			screen = screenOf(resp)
-			if screen == "main_menu" || screen == "combat_skill_reward" {
+			if screen == "main_menu" {
+				fightDone = true
 				break
+			}
+			if screen == "combat_skill_reward" {
+				// Handle skill reward then continue.
+				if len(resp.Options) > 0 {
+					sendCommand(t, ws, "select", resp.Options[0].Key)
+					resp = readGameResponse(t, ws)
+				}
+				continue
 			}
 			if screen != "combat" && screen != "combat_guard_prompt" {
 				break
@@ -141,12 +147,10 @@ func TestSmoke(t *testing.T) {
 			resp = readGameResponse(t, ws)
 		}
 
-		// Handle skill reward if present.
-		if screenOf(resp) == "combat_skill_reward" {
-			if len(resp.Options) > 0 {
-				sendCommand(t, ws, "select", resp.Options[0].Key)
-				resp = readGameResponse(t, ws)
-			}
+		// If still in combat (next hunt started), stop hunting.
+		if !fightDone && screenOf(resp) == "combat" {
+			sendCommand(t, ws, "select", "7") // Stop Hunting
+			resp = readGameResponse(t, ws)
 		}
 
 		requireScreen(t, resp, "main_menu", "after hunt")

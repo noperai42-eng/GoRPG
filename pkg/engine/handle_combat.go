@@ -236,7 +236,15 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 		for _, item := range player.Inventory {
 			if item.ItemType == "consumable" {
 				idx++
-				label := fmt.Sprintf("%s (Heals %d HP)", item.Name, item.Consumable.Value)
+				var label string
+				switch item.Consumable.EffectType {
+				case "restore_mana":
+					label = fmt.Sprintf("%s (Restores %d MP)", item.Name, item.Consumable.Value)
+				case "restore_stamina":
+					label = fmt.Sprintf("%s (Restores %d SP)", item.Name, item.Consumable.Value)
+				default:
+					label = fmt.Sprintf("%s (Heals %d HP)", item.Name, item.Consumable.Value)
+				}
 				options = append(options, Opt(strconv.Itoa(idx), label))
 			}
 		}
@@ -302,6 +310,18 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 	case "6": // Auto-fight: resolve rest of combat automatically
 		combat.Turn-- // undo increment, autoResolveCombat manages its own turns
 		return e.autoResolveCombat(session, msgs)
+
+	case "7": // Stop Hunting - end the hunt chain and return to main menu
+		combat.Turn--
+		combat.HuntsRemaining = 0
+		msgs = append(msgs, Msg("You stop hunting and return home.", "system"))
+		session.State = StateMainMenu
+		return GameResponse{
+			Type:     "narrative",
+			Messages: msgs,
+			State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
+			Options:  BuildMainMenuResponse(session).Options,
+		}
 
 	case "5": // Flee
 		fleeChance := 50 + (player.Level-mob.Level)*5
@@ -455,7 +475,14 @@ func (e *Engine) handleCombatItemSelect(session *GameSession, cmd GameCommand) G
 	// Consume the turn now
 	combat.Turn++
 	msgs = append(msgs, Msg(fmt.Sprintf("--- Turn %d ---", combat.Turn), "system"))
-	msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s! (Heals %d HP)", player.Name, selectedItem.Name, selectedItem.Consumable.Value), "heal"))
+	switch selectedItem.Consumable.EffectType {
+	case "restore_mana":
+		msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s! (Restores %d MP)", player.Name, selectedItem.Name, selectedItem.Consumable.Value), "heal"))
+	case "restore_stamina":
+		msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s! (Restores %d SP)", player.Name, selectedItem.Name, selectedItem.Consumable.Value), "heal"))
+	default:
+		msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s! (Heals %d HP)", player.Name, selectedItem.Name, selectedItem.Consumable.Value), "heal"))
+	}
 
 	session.State = StateCombat
 
@@ -907,18 +934,26 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		msgs = append(msgs, Msg(fmt.Sprintf("Bonus loot from %s monster: %s!", rarityDisplay, bonusItem.Name), "loot"))
 	}
 
-	// 30% chance to get a health potion
+	// 30% chance to get a potion (health, mana, or stamina)
 	if rand.Intn(100) < 30 {
 		potionSize := "small"
-		roll := rand.Intn(100)
-		if roll < 50 {
+		sizeRoll := rand.Intn(100)
+		if sizeRoll < 50 {
 			potionSize = "small"
-		} else if roll < 85 {
+		} else if sizeRoll < 85 {
 			potionSize = "medium"
 		} else {
 			potionSize = "large"
 		}
-		potion := game.CreateHealthPotion(potionSize)
+		typeRoll := rand.Intn(100)
+		var potion models.Item
+		if typeRoll < 50 {
+			potion = game.CreateHealthPotion(potionSize)
+		} else if typeRoll < 75 {
+			potion = game.CreateManaPotion(potionSize)
+		} else {
+			potion = game.CreateStaminaPotion(potionSize)
+		}
 		player.Inventory = append(player.Inventory, potion)
 		msgs = append(msgs, Msg(fmt.Sprintf("Found a %s!", potion.Name), "loot"))
 	}
@@ -1397,7 +1432,6 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 	location := combat.Location
 
 	combat.HuntsRemaining--
-	msgs = append(msgs, Msg(fmt.Sprintf("Hunts remaining: %d", combat.HuntsRemaining+1), "system"))
 
 	// Resurrect if dead
 	if player.HitpointsRemaining <= 0 {
@@ -1502,6 +1536,7 @@ func combatActionOptions() []MenuOption {
 		Opt("4", "Use Skill"),
 		Opt("5", "Flee"),
 		Opt("6", "Auto Fight"),
+		Opt("7", "Stop Hunting"),
 	}
 }
 

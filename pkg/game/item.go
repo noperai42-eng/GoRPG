@@ -69,6 +69,72 @@ func CreateHealthPotion(size string) models.Item {
 	}
 }
 
+func CreateManaPotion(size string) models.Item {
+	var name string
+	var restoreAmount int
+
+	switch size {
+	case "small":
+		name = "Small Mana Potion"
+		restoreAmount = 15
+	case "medium":
+		name = "Medium Mana Potion"
+		restoreAmount = 30
+	case "large":
+		name = "Large Mana Potion"
+		restoreAmount = 50
+	default:
+		name = "Mana Potion"
+		restoreAmount = 20
+	}
+
+	return models.Item{
+		Name:     name,
+		ItemType: "consumable",
+		Rarity:   1,
+		Slot:     -1,
+		CP:       0,
+		Consumable: models.ConsumableEffect{
+			EffectType: "restore_mana",
+			Value:      restoreAmount,
+			Duration:   0,
+		},
+	}
+}
+
+func CreateStaminaPotion(size string) models.Item {
+	var name string
+	var restoreAmount int
+
+	switch size {
+	case "small":
+		name = "Small Stamina Potion"
+		restoreAmount = 15
+	case "medium":
+		name = "Medium Stamina Potion"
+		restoreAmount = 30
+	case "large":
+		name = "Large Stamina Potion"
+		restoreAmount = 50
+	default:
+		name = "Stamina Potion"
+		restoreAmount = 20
+	}
+
+	return models.Item{
+		Name:     name,
+		ItemType: "consumable",
+		Rarity:   1,
+		Slot:     -1,
+		CP:       0,
+		Consumable: models.ConsumableEffect{
+			EffectType: "restore_stamina",
+			Value:      restoreAmount,
+			Duration:   0,
+		},
+	}
+}
+
 func CreateSkillScroll(skill models.Skill) models.Item {
 	scrollName := skill.Name + " Scroll"
 
@@ -129,6 +195,20 @@ func UseConsumableItem(item models.Item, character *models.Character) bool {
 		character.HitpointsRemaining += healAmount
 		if character.HitpointsRemaining > character.HitpointsTotal {
 			character.HitpointsRemaining = character.HitpointsTotal
+		}
+		return true
+	case "restore_mana":
+		restoreAmount := item.Consumable.Value
+		character.ManaRemaining += restoreAmount
+		if character.ManaRemaining > character.ManaTotal {
+			character.ManaRemaining = character.ManaTotal
+		}
+		return true
+	case "restore_stamina":
+		restoreAmount := item.Consumable.Value
+		character.StaminaRemaining += restoreAmount
+		if character.StaminaRemaining > character.StaminaTotal {
+			character.StaminaRemaining = character.StaminaTotal
 		}
 		return true
 	default:

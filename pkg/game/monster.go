@@ -413,6 +413,20 @@ func GenerateMonster(name string, level int, rank int) models.Monster {
 		EquipBestItem(item, &monster.EquipmentMap, &monster.Inventory)
 	}
 
+	// Enforce minimum HP/MP/SP of 1 per level
+	if monster.HitpointsTotal < level {
+		monster.HitpointsTotal = level
+		monster.HitpointsRemaining = level
+	}
+	if monster.ManaTotal < level {
+		monster.ManaTotal = level
+		monster.ManaRemaining = level
+	}
+	if monster.StaminaTotal < level {
+		monster.StaminaTotal = level
+		monster.StaminaRemaining = level
+	}
+
 	return monster
 }
 
@@ -532,6 +546,19 @@ func LevelUpMob(mob *models.Monster) {
 			mob.DefenseRolls = mob.Level/10 + 1
 			mob.StatsMod = CalculateItemMods(mob.EquipmentMap)
 			mob.HitpointsTotal = mob.HitpointsNatural + mob.StatsMod.HitPointMod
+			// Enforce minimum HP/MP/SP of 1 per level
+			if mob.HitpointsTotal < mob.Level {
+				mob.HitpointsTotal = mob.Level
+				mob.HitpointsRemaining = mob.HitpointsTotal
+			}
+			if mob.ManaTotal < mob.Level {
+				mob.ManaTotal = mob.Level
+				mob.ManaRemaining = mob.ManaTotal
+			}
+			if mob.StaminaTotal < mob.Level {
+				mob.StaminaTotal = mob.Level
+				mob.StaminaRemaining = mob.StaminaTotal
+			}
 			fmt.Printf("%s leveled up to %d!\n", mob.Name, mob.Level)
 		}
 	}
