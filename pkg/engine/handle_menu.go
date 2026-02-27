@@ -335,6 +335,11 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		session.State = StateTownMain
 		return e.handleTownMain(session, GameCommand{Type: "init"})
 
+	case "12":
+		// Dungeon
+		session.State = StateDungeonSelect
+		return e.handleDungeonSelect(session, GameCommand{Type: "init"})
+
 	case "exit":
 		gs.CharactersMap[player.Name] = *player
 		game.WriteGameStateToFile(*gs, session.SaveFile)
@@ -526,8 +531,13 @@ func (e *Engine) handleHuntCountSelect(session *GameSession, cmd GameCommand) Ga
 			if monster.IsSkillGuardian {
 				guardianTag = " [SKILL GUARDIAN]"
 			}
-			label := fmt.Sprintf("%s (Lv%d) HP:%d/%d%s",
-				monster.Name, monster.Level,
+			rarityTag := ""
+			rarityName := game.RarityDisplayName(monster.Rarity)
+			if rarityName != "Common" {
+				rarityTag = fmt.Sprintf("[%s] ", rarityName)
+			}
+			label := fmt.Sprintf("%s%s (Lv%d) HP:%d/%d%s",
+				rarityTag, monster.Name, monster.Level,
 				monster.HitpointsRemaining, monster.HitpointsTotal,
 				guardianTag)
 			options = append(options, Opt(strconv.Itoa(idx+1), label))
@@ -704,10 +714,15 @@ func buildCombatDisplay(session *GameSession) GameResponse {
 		if mob.IsBoss {
 			guardianTag = " [BOSS]"
 		}
+		rarityTag := ""
+		mobRarityName := game.RarityDisplayName(mob.Rarity)
+		if mobRarityName != "Common" {
+			rarityTag = fmt.Sprintf(" [%s]", mobRarityName)
+		}
 		msgs = []GameMessage{
-			Msg(fmt.Sprintf("Lv%d %s vs Lv%d %s (%s)%s",
+			Msg(fmt.Sprintf("Lv%d %s vs Lv%d %s (%s)%s%s",
 				player.Level, player.Name,
-				mob.Level, mob.Name, mob.MonsterType, guardianTag), "combat"),
+				mob.Level, mob.Name, mob.MonsterType, rarityTag, guardianTag), "combat"),
 			Msg(fmt.Sprintf("Hunts remaining: %d", c.HuntsRemaining), "system"),
 			Msg(fmt.Sprintf("[%s] HP:%d/%d | MP:%d/%d | SP:%d/%d",
 				player.Name,

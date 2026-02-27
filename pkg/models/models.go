@@ -11,6 +11,17 @@ const (
 	Poison    DamageType = "poison"
 )
 
+// MonsterRarity represents rarity tiers for monsters
+type MonsterRarity string
+
+const (
+	RarityCommon    MonsterRarity = "common"
+	RarityUncommon  MonsterRarity = "uncommon"
+	RarityRare      MonsterRarity = "rare"
+	RarityEpic      MonsterRarity = "epic"
+	RarityLegendary MonsterRarity = "legendary"
+)
+
 type GameState struct {
 	CharactersMap   map[string]Character `json:"characters_map"`
 	GameLocations   map[string]Location  `json:"game_locations"`
@@ -130,6 +141,10 @@ type Character struct {
 	CompletedQuests    []string               `json:"completed_quests"`
 	ActiveQuests       []string               `json:"active_quests"`
 	VillageName        string                 `json:"village_name"`
+	Stats              CharacterStats         `json:"stats"`
+	ActiveDungeon      *Dungeon               `json:"active_dungeon,omitempty"`
+	ActiveNPCQuests    []string               `json:"active_npc_quests"`
+	CompletedNPCQuests []string               `json:"completed_npc_quests"`
 }
 
 type Quest struct {
@@ -205,6 +220,7 @@ type Monster struct {
 	Experience         int                    `json:"experience"`
 	ExpSinceLevel      int                    `json:"exp_since_level"`
 	Rank               int                    `json:"rank"`
+	Rarity             MonsterRarity          `json:"rarity"`
 	HitpointsTotal     int                    `json:"hitpoints_total"`
 	HitpointsNatural   int                    `json:"hitpoints_natural"`
 	HitpointsRemaining int                    `json:"hitpoints_remaining"`
@@ -260,6 +276,10 @@ type Town struct {
 	TaxRate     int               `json:"tax_rate"`
 	FetchQuests []FetchQuest      `json:"fetch_quests"`
 	AttackLog   []TownAttackLog   `json:"attack_log"`
+	Townsfolk   []NPCTownsfolk    `json:"townsfolk"`
+	GossipBoard []string          `json:"gossip_board"`
+	NPCFighters []NPCFighter      `json:"npc_fighters"`
+	NPCQuests   []NPCQuest        `json:"npc_quests"`
 }
 
 // InnGuest is a snapshot of a sleeping player for async PvP.
@@ -327,4 +347,128 @@ type TownAttackLog struct {
 	Success      bool   `json:"success"`
 	Timestamp    int64  `json:"timestamp"`
 	Details      string `json:"details"`
+}
+
+// CharacterStats tracks kill/death/progression analytics.
+type CharacterStats struct {
+	TotalKills      int            `json:"total_kills"`
+	TotalDeaths     int            `json:"total_deaths"`
+	KillsByRarity   map[string]int `json:"kills_by_rarity"`
+	KillsByMonster  map[string]int `json:"kills_by_monster"`
+	KillsByLocation map[string]int `json:"kills_by_location"`
+	BossesKilled    int            `json:"bosses_killed"`
+	TotalXPEarned   int            `json:"total_xp_earned"`
+	HighestCombo    int            `json:"highest_combo"`
+	CurrentCombo    int            `json:"current_combo"`
+	PvPWins         int            `json:"pvp_wins"`
+	PvPLosses       int            `json:"pvp_losses"`
+	DungeonsCleared int            `json:"dungeons_cleared"`
+}
+
+// Dungeon represents an active dungeon run.
+type Dungeon struct {
+	Name         string         `json:"name"`
+	Floors       []DungeonFloor `json:"floors"`
+	CurrentFloor int            `json:"current_floor"`
+	BaseLevelMin int            `json:"base_level_min"`
+	BaseLevelMax int            `json:"base_level_max"`
+	BaseRankMax  int            `json:"base_rank_max"`
+	Seed         int64          `json:"seed"`
+}
+
+// DungeonFloor represents a single floor within a dungeon.
+type DungeonFloor struct {
+	FloorNumber int           `json:"floor_number"`
+	Rooms       []DungeonRoom `json:"rooms"`
+	CurrentRoom int           `json:"current_room"`
+	Cleared     bool          `json:"cleared"`
+	BossFloor   bool          `json:"boss_floor"`
+}
+
+// DungeonRoom represents a single room on a dungeon floor.
+type DungeonRoom struct {
+	Type       string   `json:"type"` // combat, treasure, trap, rest, boss, merchant
+	Cleared    bool     `json:"cleared"`
+	Monster    *Monster `json:"monster,omitempty"`
+	Loot       []Item   `json:"loot,omitempty"`
+	TrapDamage int      `json:"trap_damage,omitempty"`
+	HealAmount int      `json:"heal_amount,omitempty"`
+}
+
+// NPCTownsfolk represents a persistent NPC in the town.
+type NPCTownsfolk struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Title         string          `json:"title"`
+	Personality   NPCPersonality  `json:"personality"`
+	Memory        []NPCMemory     `json:"memory"`
+	Relationships map[string]int  `json:"relationships"`
+	Level         int             `json:"level"`
+	Age           int             `json:"age"`
+	IsAlive       bool            `json:"is_alive"`
+	CurrentMood   string          `json:"current_mood"`
+	QuestGiver    bool            `json:"quest_giver"`
+	LocationName  string          `json:"location_name"`
+	GoldCarried   int             `json:"gold_carried"`
+}
+
+// NPCPersonality defines the behavioral traits of an NPC.
+type NPCPersonality struct {
+	Archetype  string  `json:"archetype"`
+	Chattiness float64 `json:"chattiness"`
+	Generosity float64 `json:"generosity"`
+	Courage    float64 `json:"courage"`
+	Curiosity  float64 `json:"curiosity"`
+}
+
+// NPCMemory records a single event an NPC remembers.
+type NPCMemory struct {
+	EventType   string `json:"event_type"`
+	PlayerName  string `json:"player_name"`
+	Description string `json:"description"`
+	Timestamp   int64  `json:"timestamp"`
+	Sentiment   int    `json:"sentiment"`
+}
+
+// NPCFighter is an NPC that can be hired for combat at the inn.
+type NPCFighter struct {
+	NPCID     string `json:"npc_id"`
+	Name      string `json:"name"`
+	Level     int    `json:"level"`
+	HireCost  int    `json:"hire_cost"`
+	Specialty string `json:"specialty"`
+}
+
+// NPCQuest is a dynamically generated quest from an NPC townsfolk.
+type NPCQuest struct {
+	ID          string         `json:"id"`
+	NPCID       string         `json:"npc_id"`
+	NPCName     string         `json:"npc_name"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Type        string         `json:"type"`
+	Requirement NPCQuestReq    `json:"requirement"`
+	Reward      NPCQuestReward `json:"reward"`
+	Difficulty  string         `json:"difficulty"`
+	RepRequired int            `json:"rep_required"`
+	CreatedAt   int64          `json:"created_at"`
+	AcceptedBy  string         `json:"accepted_by,omitempty"`
+	Completed   bool           `json:"completed"`
+	Failed      bool           `json:"failed"`
+}
+
+// NPCQuestReq defines the requirement to complete an NPC quest.
+type NPCQuestReq struct {
+	Type         string `json:"type"`
+	TargetName   string `json:"target_name"`
+	TargetCount  int    `json:"target_count"`
+	CurrentCount int    `json:"current_count"`
+}
+
+// NPCQuestReward defines the rewards for completing an NPC quest.
+type NPCQuestReward struct {
+	XP         int `json:"xp"`
+	Gold       int `json:"gold"`
+	Reputation int `json:"reputation"`
+	ItemRarity int `json:"item_rarity,omitempty"`
 }

@@ -82,6 +82,27 @@ const (
 	StateTownMayorHireGuard     = "town_mayor_hire_guard"
 	StateTownMayorHireMonster   = "town_mayor_hire_monster"
 	StateTownFetchQuests        = "town_fetch_quests"
+	StateTownTalkNPC            = "town_talk_npc"
+	StateTownNPCDialogue        = "town_npc_dialogue"
+	StateTownNPCQuestBoard      = "town_npc_quest_board"
+	StateTownNPCQuestDetail     = "town_npc_quest_detail"
+	StateTownNPCQuestAccept     = "town_npc_quest_accept"
+	StateTownNPCQuestTurnIn     = "town_npc_quest_turn_in"
+	StateTownInnGossip          = "town_inn_gossip"
+	StateTownInnGamble          = "town_inn_gamble"
+	StateTownInnGamblePlay      = "town_inn_gamble_play"
+	StateTownInnHireFighter     = "town_inn_hire_fighter"
+
+	// Dungeon states
+	StateDungeonSelect    = "dungeon_select"
+	StateDungeonFloorMap  = "dungeon_floor_map"
+	StateDungeonRoom      = "dungeon_room"
+	StateDungeonTreasure  = "dungeon_treasure"
+	StateDungeonTrap      = "dungeon_trap"
+	StateDungeonRest      = "dungeon_rest"
+	StateDungeonMerchant  = "dungeon_merchant"
+	StateDungeonComplete  = "dungeon_complete"
+	StateDungeonDefeat    = "dungeon_defeat"
 )
 
 // CombatContext tracks turn-by-turn combat state.
@@ -103,6 +124,9 @@ type CombatContext struct {
 	AutoPlayWins   int
 	AutoPlayDeaths int
 	AutoPlayXP     int
+
+	// Dungeon fields
+	IsDungeon           bool
 
 	// PvP / Town fields
 	IsPvP               bool

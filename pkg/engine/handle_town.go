@@ -16,6 +16,9 @@ func (e *Engine) loadOrCreateTown(session *GameSession) (*models.Town, error) {
 	if e.store == nil {
 		// Local mode: create in-memory town
 		town := game.GenerateDefaultTown(game.DefaultTownName)
+		if len(town.Townsfolk) == 0 {
+			town.Townsfolk = game.GenerateDefaultTownsfolk()
+		}
 		return &town, nil
 	}
 	town, err := e.store.LoadTown(game.DefaultTownName)
@@ -30,6 +33,13 @@ func (e *Engine) loadOrCreateTown(session *GameSession) (*models.Town, error) {
 	game.CleanExpiredGuests(&town, 86400)
 	// Replenish NPC guests if too few
 	game.ReplenishNPCGuests(&town)
+	// Initialize townsfolk if empty
+	if len(town.Townsfolk) == 0 {
+		town.Townsfolk = game.GenerateDefaultTownsfolk()
+		if saveErr := e.store.SaveTown(town); saveErr != nil {
+			// Non-fatal: townsfolk will regenerate next load
+		}
+	}
 	return &town, nil
 }
 
@@ -75,6 +85,12 @@ func (e *Engine) handleTownMain(session *GameSession, cmd GameCommand) GameRespo
 	case "4": // Challenge Mayor
 		session.State = StateTownMayorChallenge
 		return e.handleTownMayorChallenge(session, GameCommand{Type: "init"})
+	case "5": // Talk to Townsfolk
+		session.State = StateTownTalkNPC
+		return e.handleTownTalkNPC(session, GameCommand{Type: "init"})
+	case "6": // NPC Quest Board
+		session.State = StateTownNPCQuestBoard
+		return e.handleTownNPCQuestBoard(session, GameCommand{Type: "init"})
 	case "0", "back":
 		session.SelectedTown = nil
 		session.State = StateMainMenu
@@ -111,6 +127,8 @@ func (e *Engine) handleTownMain(session *GameSession, cmd GameCommand) GameRespo
 		Opt("2", "View Mayor"),
 		Opt("3", "Fetch Quests"),
 		Opt("4", "Challenge Mayor"),
+		Opt("5", "Talk to Townsfolk"),
+		Opt("6", "NPC Quest Board"),
 		Opt("0", "Return to Main Menu"),
 	}
 
@@ -144,6 +162,15 @@ func (e *Engine) handleTownInn(session *GameSession, cmd GameCommand) GameRespon
 	case "3": // View Guests
 		session.State = StateTownInnViewGuests
 		return e.handleTownInnViewGuests(session, GameCommand{Type: "init"})
+	case "4": // Gossip Board
+		session.State = StateTownInnGossip
+		return e.handleTownInnGossip(session, GameCommand{Type: "init"})
+	case "5": // Gamble
+		session.State = StateTownInnGamble
+		return e.handleTownInnGamble(session, GameCommand{Type: "init"})
+	case "6": // Hire Fighter
+		session.State = StateTownInnHireFighter
+		return e.handleTownInnHireFighter(session, GameCommand{Type: "init"})
 	case "0", "back":
 		session.State = StateTownMain
 		return e.handleTownMain(session, GameCommand{Type: "init"})
@@ -185,6 +212,9 @@ func (e *Engine) handleTownInn(session *GameSession, cmd GameCommand) GameRespon
 	options = append(options,
 		Opt("2", "Hire Inn Guard"),
 		Opt("3", "View Guests"),
+		Opt("4", "Gossip Board"),
+		Opt("5", "Gamble (Dice)"),
+		Opt("6", "Hire Fighter"),
 		Opt("0", "Back to Town"),
 	)
 
@@ -492,6 +522,292 @@ func (e *Engine) startInnPvP(session *GameSession, town *models.Town, target *mo
 			Combat: MakeCombatView(session),
 		},
 		Options: combatActionOptions(),
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Inn Gossip Board
+// ─────────────────────────────────────────────────────────────────────
+
+func (e *Engine) handleTownInnGossip(session *GameSession, cmd GameCommand) GameResponse {
+	town, err := e.loadOrCreateTown(session)
+	if err != nil {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+	session.SelectedTown = town
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+
+	gossip := game.GenerateGossip(town, e.store)
+
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("  Gossip Board", "system"),
+		Msg("============================================================", "system"),
+	}
+
+	if len(gossip) == 0 {
+		msgs = append(msgs, Msg("Nothing interesting to report today.", "narrative"))
+	} else {
+		for _, g := range gossip {
+			msgs = append(msgs, Msg("  - "+g, "narrative"))
+		}
+	}
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    townStateData("town_inn_gossip", session, town),
+		Options:  []MenuOption{Opt("0", "Back to Inn")},
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Inn Gambling
+// ─────────────────────────────────────────────────────────────────────
+
+func (e *Engine) handleTownInnGamble(session *GameSession, cmd GameCommand) GameResponse {
+	town, err := e.loadOrCreateTown(session)
+	if err != nil {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+	session.SelectedTown = town
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+
+	// If a bet amount was selected, play the gamble
+	if cmd.Value == "10" || cmd.Value == "50" || cmd.Value == "100" {
+		session.State = StateTownInnGamblePlay
+		return e.handleTownInnGamblePlay(session, cmd)
+	}
+
+	player := session.Player
+	goldRes, hasGold := player.ResourceStorageMap["Gold"]
+	currentGold := 0
+	if hasGold {
+		currentGold = goldRes.Stock
+	}
+
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("  Dice Gambling", "system"),
+		Msg("============================================================", "system"),
+		Msg("Rules: Both sides roll 3d6. Highest total wins!", "system"),
+		Msg("Win = 2x your bet. Lose = lose your bet.", "system"),
+		Msg(fmt.Sprintf("Your Gold: %d", currentGold), "system"),
+	}
+
+	options := []MenuOption{
+		Opt("10", "Bet 10 Gold"),
+		Opt("50", "Bet 50 Gold"),
+		Opt("100", "Bet 100 Gold"),
+		Opt("0", "Back to Inn"),
+	}
+
+	// Disable bets player can't afford
+	for i, opt := range options {
+		if opt.Key == "0" {
+			continue
+		}
+		betAmount, _ := strconv.Atoi(opt.Key)
+		if betAmount > currentGold {
+			options[i] = OptDisabled(opt.Key, opt.Label+" [not enough gold]")
+		}
+	}
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    townStateData("town_inn_gamble", session, town),
+		Options:  options,
+	}
+}
+
+func (e *Engine) handleTownInnGamblePlay(session *GameSession, cmd GameCommand) GameResponse {
+	town := session.SelectedTown
+	player := session.Player
+
+	bet, parseErr := strconv.Atoi(cmd.Value)
+	if parseErr != nil || bet <= 0 {
+		session.State = StateTownInnGamble
+		return e.handleTownInnGamble(session, GameCommand{Type: "init"})
+	}
+
+	goldRes, hasGold := player.ResourceStorageMap["Gold"]
+	if !hasGold || goldRes.Stock < bet {
+		msgs := []GameMessage{Msg("Not enough gold!", "error")}
+		session.State = StateTownInnGamble
+		resp := e.handleTownInnGamble(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+	}
+
+	// Deduct bet
+	goldRes.Stock -= bet
+	player.ResourceStorageMap["Gold"] = goldRes
+
+	won, narrative, payout := game.ResolveGamble(player.Level, bet)
+
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("  Bet: %d Gold", bet), "system"),
+		Msg("============================================================", "system"),
+		Msg(narrative, "narrative"),
+	}
+
+	if won {
+		goldRes.Stock += payout
+		player.ResourceStorageMap["Gold"] = goldRes
+		msgs = append(msgs, Msg(fmt.Sprintf("You won %d gold! (net +%d)", payout, payout-bet), "loot"))
+	} else {
+		msgs = append(msgs, Msg(fmt.Sprintf("You lost %d gold!", bet), "damage"))
+	}
+
+	session.GameState.CharactersMap[player.Name] = *player
+
+	_ = town // referenced for state consistency
+
+	session.State = StateTownInnGamble
+	resp := e.handleTownInnGamble(session, GameCommand{Type: "init"})
+	resp.Messages = append(msgs, resp.Messages...)
+	return resp
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Inn Hire Fighter
+// ─────────────────────────────────────────────────────────────────────
+
+func (e *Engine) handleTownInnHireFighter(session *GameSession, cmd GameCommand) GameResponse {
+	town, err := e.loadOrCreateTown(session)
+	if err != nil {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+	session.SelectedTown = town
+	player := session.Player
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateTownInn
+		return e.handleTownInn(session, GameCommand{Type: "init"})
+	}
+
+	// Regenerate fighters if town has none
+	if len(town.NPCFighters) == 0 {
+		town.NPCFighters = game.GenerateNPCFighters(player.Level)
+		e.saveTown(town)
+	}
+
+	// Check if hiring a specific fighter
+	if cmd.Value != "" && cmd.Value != "init" {
+		idx, parseErr := strconv.Atoi(cmd.Value)
+		if parseErr == nil && idx >= 1 && idx <= len(town.NPCFighters) {
+			fighter := town.NPCFighters[idx-1]
+			goldRes, hasGold := player.ResourceStorageMap["Gold"]
+			if !hasGold || goldRes.Stock < fighter.HireCost {
+				msgs := []GameMessage{Msg(fmt.Sprintf("Not enough gold! Need %d", fighter.HireCost), "error")}
+				session.State = StateTownInn
+				resp := e.handleTownInn(session, GameCommand{Type: "init"})
+				resp.Messages = append(msgs, resp.Messages...)
+				return resp
+			}
+
+			// Deduct gold
+			goldRes.Stock -= fighter.HireCost
+			player.ResourceStorageMap["Gold"] = goldRes
+
+			// Create a guard from the fighter
+			guard := models.Guard{
+				Name:               fighter.Name,
+				Level:              fighter.Level,
+				HitPoints:          50 + fighter.Level*10,
+				HitpointsRemaining: 50 + fighter.Level*10,
+				AttackRolls:        fighter.Level/5 + 1,
+				DefenseRolls:       fighter.Level/5 + 1,
+				AttackBonus:        fighter.Level + 5,
+				DefenseBonus:       fighter.Level + 3,
+				Cost:               fighter.HireCost,
+				Hired:              true,
+			}
+
+			// Adjust stats by specialty
+			switch fighter.Specialty {
+			case "tank":
+				guard.HitPoints += fighter.Level * 5
+				guard.HitpointsRemaining = guard.HitPoints
+				guard.DefenseBonus += 5
+			case "dps":
+				guard.AttackBonus += 8
+				guard.AttackRolls++
+			case "healer":
+				guard.DefenseBonus += 3
+				guard.HitPoints += fighter.Level * 3
+				guard.HitpointsRemaining = guard.HitPoints
+			}
+
+			// Add to village guards if player has a village
+			if session.SelectedVillage != nil {
+				session.SelectedVillage.ActiveGuards = append(session.SelectedVillage.ActiveGuards, guard)
+			} else if player.VillageName != "" && session.GameState.Villages != nil {
+				if village, ok := session.GameState.Villages[player.VillageName]; ok {
+					village.ActiveGuards = append(village.ActiveGuards, guard)
+					session.GameState.Villages[player.VillageName] = village
+				}
+			}
+
+			// Remove fighter from available list
+			town.NPCFighters = append(town.NPCFighters[:idx-1], town.NPCFighters[idx:]...)
+			e.saveTown(town)
+			session.GameState.CharactersMap[player.Name] = *player
+
+			msgs := []GameMessage{
+				Msg(fmt.Sprintf("Hired %s (Lv%d, %s) for %d gold!", fighter.Name, fighter.Level, fighter.Specialty, fighter.HireCost), "system"),
+			}
+			session.State = StateTownInn
+			resp := e.handleTownInn(session, GameCommand{Type: "init"})
+			resp.Messages = append(msgs, resp.Messages...)
+			return resp
+		}
+	}
+
+	// Show available fighters
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("  Hire a Fighter", "system"),
+		Msg("============================================================", "system"),
+		Msg("Fighters join your village guard force.", "system"),
+	}
+
+	goldRes, hasGold := player.ResourceStorageMap["Gold"]
+	currentGold := 0
+	if hasGold {
+		currentGold = goldRes.Stock
+	}
+	msgs = append(msgs, Msg(fmt.Sprintf("Your Gold: %d", currentGold), "system"))
+
+	options := []MenuOption{}
+	for i, f := range town.NPCFighters {
+		label := fmt.Sprintf("%s (Lv%d, %s) - %d Gold", f.Name, f.Level, f.Specialty, f.HireCost)
+		if currentGold >= f.HireCost {
+			options = append(options, Opt(strconv.Itoa(i+1), label))
+		} else {
+			options = append(options, OptDisabled(strconv.Itoa(i+1), label+" [not enough gold]"))
+		}
+	}
+	options = append(options, Opt("0", "Back to Inn"))
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    townStateData("town_inn_hire_fighter", session, town),
+		Options:  options,
 	}
 }
 
@@ -1491,4 +1807,186 @@ func (e *Engine) resolveMayorChallengeLoss(session *GameSession, msgs []GameMess
 	})
 
 	e.saveTown(town)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Talk to Townsfolk
+// ─────────────────────────────────────────────────────────────────────
+
+func (e *Engine) handleTownTalkNPC(session *GameSession, cmd GameCommand) GameResponse {
+	town, err := e.loadOrCreateTown(session)
+	if err != nil {
+		session.State = StateTownMain
+		return e.handleTownMain(session, GameCommand{Type: "init"})
+	}
+	session.SelectedTown = town
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateTownMain
+		return e.handleTownMain(session, GameCommand{Type: "init"})
+	}
+
+	// Check if an NPC was selected by index
+	if cmd.Value != "" && cmd.Value != "init" {
+		idx, parseErr := strconv.Atoi(cmd.Value)
+		if parseErr == nil && idx >= 1 {
+			// Find the idx-th alive NPC
+			count := 0
+			for i := range town.Townsfolk {
+				if !town.Townsfolk[i].IsAlive {
+					continue
+				}
+				count++
+				if count == idx {
+					session.SelectedVillagerIdx = i
+					session.State = StateTownNPCDialogue
+					return e.handleTownNPCDialogue(session, GameCommand{Type: "init"})
+				}
+			}
+		}
+	}
+
+	// Show list of townsfolk
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("  Town Residents", "system"),
+		Msg("============================================================", "system"),
+	}
+
+	options := []MenuOption{}
+	count := 0
+	for _, npc := range town.Townsfolk {
+		if !npc.IsAlive {
+			continue
+		}
+		count++
+		rel := 0
+		if npc.Relationships != nil {
+			rel = npc.Relationships[session.Player.Name]
+		}
+		relLabel := game.RelationshipLabel(rel)
+		label := fmt.Sprintf("%s the %s (Lv%d) [%s] - %s", npc.Name, npc.Title, npc.Level, npc.CurrentMood, relLabel)
+		options = append(options, Opt(strconv.Itoa(count), label))
+	}
+
+	if count == 0 {
+		msgs = append(msgs, Msg("No townsfolk around.", "narrative"))
+	}
+
+	options = append(options, Opt("0", "Back to Town"))
+
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    townStateData("town_talk_npc", session, town),
+		Options:  options,
+	}
+}
+
+func (e *Engine) handleTownNPCDialogue(session *GameSession, cmd GameCommand) GameResponse {
+	town, err := e.loadOrCreateTown(session)
+	if err != nil {
+		session.State = StateTownTalkNPC
+		return e.handleTownTalkNPC(session, GameCommand{Type: "init"})
+	}
+	session.SelectedTown = town
+	player := session.Player
+
+	idx := session.SelectedVillagerIdx
+	if idx < 0 || idx >= len(town.Townsfolk) {
+		session.State = StateTownTalkNPC
+		return e.handleTownTalkNPC(session, GameCommand{Type: "init"})
+	}
+
+	npc := &town.Townsfolk[idx]
+
+	switch cmd.Value {
+	case "0", "back":
+		session.State = StateTownTalkNPC
+		return e.handleTownTalkNPC(session, GameCommand{Type: "init"})
+
+	case "1", "init": // Greet / Talk
+		greeting := game.GetNPCDialogue(npc, player.Name, "greeting")
+
+		// Record meeting in memory
+		game.AddNPCMemory(npc, models.NPCMemory{
+			EventType:   "met",
+			PlayerName:  player.Name,
+			Description: fmt.Sprintf("Met %s in town", player.Name),
+			Timestamp:   time.Now().Unix(),
+			Sentiment:   1,
+		})
+		game.UpdateNPCRelationship(npc, player.Name, 1)
+		npc.CurrentMood = game.ComputeNPCMood(npc)
+		e.saveTown(town)
+
+		rel := npc.Relationships[player.Name]
+		msgs := []GameMessage{
+			Msg("============================================================", "system"),
+			Msg(fmt.Sprintf("  %s the %s", npc.Name, npc.Title), "system"),
+			Msg("============================================================", "system"),
+			Msg(fmt.Sprintf("\"%s\"", greeting), "narrative"),
+			Msg(fmt.Sprintf("Relationship: %s (%d)", game.RelationshipLabel(rel), rel), "system"),
+		}
+
+		options := []MenuOption{
+			Opt("2", "Ask for Gossip"),
+			Opt("3", "Say Farewell"),
+			Opt("0", "Back to Townsfolk"),
+		}
+
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    townStateData("town_npc_dialogue", session, town),
+			Options:  options,
+		}
+
+	case "2": // Gossip
+		gossip := game.GetNPCDialogue(npc, player.Name, "gossip")
+
+		game.AddNPCMemory(npc, models.NPCMemory{
+			EventType:   "gossip",
+			PlayerName:  player.Name,
+			Description: fmt.Sprintf("Shared gossip with %s", player.Name),
+			Timestamp:   time.Now().Unix(),
+			Sentiment:   2,
+		})
+		game.UpdateNPCRelationship(npc, player.Name, 2)
+		npc.CurrentMood = game.ComputeNPCMood(npc)
+		e.saveTown(town)
+
+		msgs := []GameMessage{
+			Msg(fmt.Sprintf("%s leans in close...", npc.Name), "narrative"),
+			Msg(fmt.Sprintf("\"%s\"", gossip), "narrative"),
+		}
+
+		options := []MenuOption{
+			Opt("1", "Talk More"),
+			Opt("3", "Say Farewell"),
+			Opt("0", "Back to Townsfolk"),
+		}
+
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    townStateData("town_npc_dialogue", session, town),
+			Options:  options,
+		}
+
+	case "3": // Farewell
+		farewell := game.GetNPCDialogue(npc, player.Name, "farewell")
+
+		msgs := []GameMessage{
+			Msg(fmt.Sprintf("\"%s\"", farewell), "narrative"),
+		}
+
+		session.State = StateTownTalkNPC
+		resp := e.handleTownTalkNPC(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+	}
+
+	// Default: show greeting
+	return e.handleTownNPCDialogue(session, GameCommand{Type: "init", Value: "1"})
 }

@@ -330,6 +330,14 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleTownInnHireGuard(session, cmd)
 	case StateTownInnViewGuests:
 		return e.handleTownInnViewGuests(session, cmd)
+	case StateTownInnGossip:
+		return e.handleTownInnGossip(session, cmd)
+	case StateTownInnGamble:
+		return e.handleTownInnGamble(session, cmd)
+	case StateTownInnGamblePlay:
+		return e.handleTownInnGamblePlay(session, cmd)
+	case StateTownInnHireFighter:
+		return e.handleTownInnHireFighter(session, cmd)
 	case StateTownMayor:
 		return e.handleTownMayor(session, cmd)
 	case StateTownMayorChallenge:
@@ -350,6 +358,23 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleTownMayorHireMonster(session, cmd)
 	case StateTownFetchQuests:
 		return e.handleTownFetchQuests(session, cmd)
+	case StateTownTalkNPC:
+		return e.handleTownTalkNPC(session, cmd)
+	case StateTownNPCDialogue:
+		return e.handleTownNPCDialogue(session, cmd)
+	case StateTownNPCQuestBoard, StateTownNPCQuestDetail,
+		StateTownNPCQuestAccept, StateTownNPCQuestTurnIn:
+		return e.handleTownNPCQuestBoard(session, cmd)
+	case StateDungeonSelect:
+		return e.handleDungeonSelect(session, cmd)
+	case StateDungeonFloorMap:
+		return e.handleDungeonFloorMap(session, cmd)
+	case StateDungeonRoom, StateDungeonTreasure, StateDungeonTrap,
+		StateDungeonRest, StateDungeonMerchant:
+		return e.handleDungeonRoom(session, cmd)
+	case StateDungeonComplete, StateDungeonDefeat:
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
 	default:
 		return ErrorResponse(fmt.Sprintf("Unknown state: %s", session.State))
 	}
@@ -497,6 +522,7 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 		Opt("7", "Player Guide"),
 		Opt("8", "AUTO-PLAY MODE"),
 		Opt("9", "Quest Log"),
+		Opt("12", "Enter Dungeon"),
 		Opt("exit", "Exit Game"),
 	}
 

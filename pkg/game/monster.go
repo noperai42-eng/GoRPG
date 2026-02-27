@@ -434,8 +434,13 @@ func GenerateBestMonster(game *models.GameState, levelMax int, rankMax int) mode
 		mob.EquipmentMap = map[int]models.Item{}
 	}
 
+	// Roll and apply rarity
+	mob.Rarity = RollRarity(rankMax)
+	ApplyRarity(&mob)
+
 	mob.StatsMod = CalculateItemMods(mob.EquipmentMap)
 	mob.HitpointsTotal = mob.HitpointsNatural + mob.StatsMod.HitPointMod
+	mob.HitpointsRemaining = mob.HitpointsTotal
 
 	return mob
 }
@@ -472,6 +477,7 @@ func GenerateSkillGuardian(skill models.Skill, level int, rank int) models.Monst
 	baseMob.IsSkillGuardian = true
 	baseMob.GuardedSkill = skill
 	baseMob.MonsterType = "Guardian"
+	baseMob.Rarity = models.RarityLegendary
 
 	baseMob.StatsMod = CalculateItemMods(baseMob.EquipmentMap)
 	baseMob.HitpointsTotal = baseMob.HitpointsNatural + baseMob.StatsMod.HitPointMod

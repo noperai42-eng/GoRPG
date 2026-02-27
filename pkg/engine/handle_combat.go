@@ -832,16 +832,54 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	mob := &combat.Mob
 	combat.PlayerWon = true
 
-	xpGained := scaledXP(player.Level, mob.Level)
+	xpGained := int(float64(scaledXP(player.Level, mob.Level)) * game.RarityXPMult(mob.Rarity))
 	player.Experience += xpGained
 
+	rarityDisplay := game.RarityDisplayName(mob.Rarity)
 	msgs = append(msgs, Msg("========================================", "system"))
 	if xpGained > 0 {
-		msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (+%d XP)", player.Name, xpGained), "combat"))
+		if rarityDisplay != "Common" {
+			msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins vs [%s] %s! (+%d XP)", player.Name, rarityDisplay, mob.Name, xpGained), "combat"))
+		} else {
+			msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (+%d XP)", player.Name, xpGained), "combat"))
+		}
 	} else {
 		msgs = append(msgs, Msg(fmt.Sprintf("VICTORY! %s Wins! (No XP - enemy too weak)", player.Name), "combat"))
 	}
 	msgs = append(msgs, Msg("========================================", "system"))
+
+	// Track analytics stats
+	locationName := ""
+	if combat.Location != nil {
+		locationName = combat.Location.Name
+	}
+	game.RecordKill(&player.Stats, mob.MonsterType, mob.Rarity, locationName)
+	game.RecordXPGained(&player.Stats, xpGained)
+	if mob.IsBoss {
+		game.RecordBossKill(&player.Stats)
+	}
+	if combat.IsPvP {
+		game.RecordPvPResult(&player.Stats, true)
+	}
+
+	// Check NPC quest progress
+	if session.SelectedTown != nil {
+		for i := range session.SelectedTown.NPCQuests {
+			q := &session.SelectedTown.NPCQuests[i]
+			if q.AcceptedBy == player.Name && !q.Completed && !q.Failed {
+				switch q.Type {
+				case "kill":
+					game.CheckNPCQuestProgress(q, "kill", mob.MonsterType)
+				case "kill_rarity":
+					rarityStr := string(game.NormalizeRarity(mob.Rarity))
+					if rarityStr == "rare" || rarityStr == "epic" || rarityStr == "legendary" {
+						game.CheckNPCQuestProgress(q, "kill_rarity", rarityStr)
+					}
+				}
+			}
+		}
+		e.saveTown(session.SelectedTown)
+	}
 
 	// Track autoplay stats
 	if combat.IsAutoPlay {
@@ -859,6 +897,14 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	materialName, materialQty := game.DropBeastMaterial(mob.MonsterType, player)
 	if materialName != "" {
 		msgs = append(msgs, Msg(fmt.Sprintf("Obtained %d %s!", materialQty, materialName), "loot"))
+	}
+
+	// Loot rarity bonus from monster rarity
+	lootBonus := game.RarityLootBonus(mob.Rarity)
+	if lootBonus > 0 {
+		bonusItem := game.GenerateItem(lootBonus)
+		game.EquipBestItem(bonusItem, &player.EquipmentMap, &player.Inventory)
+		msgs = append(msgs, Msg(fmt.Sprintf("Bonus loot from %s monster: %s!", rarityDisplay, bonusItem.Name), "loot"))
 	}
 
 	// 30% chance to get a health potion
@@ -1066,6 +1112,26 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		}
 	}
 
+	// Dungeon combat win: mark room cleared and continue dungeon
+	if combat.IsDungeon && player.ActiveDungeon != nil {
+		dungeon := player.ActiveDungeon
+		floor := &dungeon.Floors[dungeon.CurrentFloor]
+		room := &floor.Rooms[floor.CurrentRoom]
+		room.Cleared = true
+
+		session.State = StateDungeonFloorMap
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State: &StateData{
+				Screen:  "dungeon_room",
+				Player:  MakePlayerState(player),
+				Dungeon: makeDungeonView(dungeon),
+			},
+			Options: []MenuOption{Opt("proceed", "Continue")},
+		}
+	}
+
 	// Check if more hunts remain
 	if combat.HuntsRemaining > 0 {
 		return e.startNextHunt(session, msgs)
@@ -1090,6 +1156,12 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 	msgs = append(msgs, Msg(fmt.Sprintf("DEFEAT! %s HAS DIED!", player.Name), "combat"))
 	msgs = append(msgs, Msg(fmt.Sprintf("%s Wins!", mob.Name), "combat"))
 	msgs = append(msgs, Msg("========================================", "system"))
+
+	// Track analytics
+	game.RecordDeath(&player.Stats)
+	if combat.IsPvP {
+		game.RecordPvPResult(&player.Stats, false)
+	}
 
 	// Track autoplay stats
 	if combat.IsAutoPlay {
@@ -1174,6 +1246,11 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 			State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
 			Options:  BuildMainMenuResponse(session).Options,
 		}
+	}
+
+	// Dungeon combat loss: lose dungeon progress
+	if combat.IsDungeon {
+		return e.handleDungeonDefeat(session, msgs)
 	}
 
 	// Check if more hunts remain

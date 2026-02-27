@@ -59,6 +59,7 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	s.mux.HandleFunc("/api/login", s.corsWrapper(s.handleLogin))
 	s.mux.HandleFunc("/api/characters", s.corsWrapper(s.authMiddleware(s.handleCharacters)))
 	s.mux.HandleFunc("/api/version", s.corsWrapper(s.handleVersion))
+	s.mux.HandleFunc("/api/leaderboard", s.corsWrapper(s.handleLeaderboard))
 
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws/game", s.handleWebSocket)
@@ -232,6 +233,44 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // handleVersion handles GET /api/version.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"version": s.version})
+}
+
+// handleLeaderboard handles GET /api/leaderboard?category=kills&limit=20.
+func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	category := r.URL.Query().Get("category")
+	if category == "" {
+		category = "kills"
+	}
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &limit); n != 1 || err != nil || limit < 1 {
+			limit = 20
+		}
+		if limit > 100 {
+			limit = 100
+		}
+	}
+
+	entries, err := s.store.GetLeaderboard(category, limit)
+	if err != nil {
+		log.Printf("leaderboard error: %v", err)
+		jsonError(w, http.StatusInternalServerError, "failed to get leaderboard")
+		return
+	}
+	if entries == nil {
+		entries = []db.LeaderboardEntry{}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"category": category,
+		"entries":  entries,
+	})
 }
 
 // handleCharacters routes GET and POST /api/characters to the correct handler.

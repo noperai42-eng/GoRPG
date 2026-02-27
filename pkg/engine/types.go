@@ -49,6 +49,32 @@ type StateData struct {
 	Combat  *CombatView  `json:"combat,omitempty"`
 	Village *VillageView `json:"village,omitempty"`
 	Town    *TownView    `json:"town,omitempty"`
+	Dungeon *DungeonView `json:"dungeon,omitempty"`
+}
+
+// DungeonView represents dungeon state for the frontend.
+type DungeonView struct {
+	Name         string            `json:"name"`
+	CurrentFloor int               `json:"current_floor"`
+	TotalFloors  int               `json:"total_floors"`
+	Floor        *DungeonFloorView `json:"floor,omitempty"`
+}
+
+// DungeonFloorView represents a single dungeon floor.
+type DungeonFloorView struct {
+	FloorNumber int               `json:"floor_number"`
+	CurrentRoom int               `json:"current_room"`
+	TotalRooms  int               `json:"total_rooms"`
+	Cleared     bool              `json:"cleared"`
+	BossFloor   bool              `json:"boss_floor"`
+	Rooms       []DungeonRoomView `json:"rooms"`
+}
+
+// DungeonRoomView represents a single dungeon room.
+type DungeonRoomView struct {
+	Type       string `json:"type"`
+	Cleared    bool   `json:"cleared"`
+	RoomIndex  int    `json:"room_index"`
 }
 
 // --- View structs for enriched frontend state ---
@@ -156,6 +182,20 @@ type TrapView struct {
 	Remaining int    `json:"remaining"`
 }
 
+// StatsView shows character analytics stats.
+type StatsView struct {
+	TotalKills      int            `json:"total_kills"`
+	TotalDeaths     int            `json:"total_deaths"`
+	KillsByRarity   map[string]int `json:"kills_by_rarity"`
+	BossesKilled    int            `json:"bosses_killed"`
+	TotalXPEarned   int            `json:"total_xp_earned"`
+	HighestCombo    int            `json:"highest_combo"`
+	CurrentCombo    int            `json:"current_combo"`
+	PvPWins         int            `json:"pvp_wins"`
+	PvPLosses       int            `json:"pvp_losses"`
+	DungeonsCleared int            `json:"dungeons_cleared"`
+}
+
 // PlayerState shows visible player information.
 type PlayerState struct {
 	Name          string `json:"name"`
@@ -185,6 +225,8 @@ type PlayerState struct {
 	CompletedQuests []QuestView         `json:"completed_quests"`
 	VillageName     string              `json:"village_name"`
 	Buildings       []string            `json:"buildings"`
+	Stats           *StatsView          `json:"stats,omitempty"`
+	ActiveNPCQuests []NPCQuestView      `json:"active_npc_quests"`
 }
 
 // CombatView contains combat-specific rendering state.
@@ -207,6 +249,7 @@ type CombatView struct {
 	MonsterSP         int          `json:"monster_sp"`
 	MonsterMaxSP      int          `json:"monster_max_sp"`
 	MonsterEffects    []EffectView `json:"monster_effects"`
+	MonsterRarity     string       `json:"monster_rarity"`
 	MonsterIsBoss     bool         `json:"monster_is_boss"`
 	MonsterIsGuardian bool         `json:"monster_is_guardian"`
 	GuardedSkillName  string       `json:"guarded_skill_name,omitempty"`
@@ -383,6 +426,23 @@ func MakePlayerState(p *models.Character) *PlayerState {
 
 	// ActiveQuests will be populated by MakeQuestViews where GameState is available
 	ps.ActiveQuests = []QuestView{}
+
+	// Active NPC quests (just IDs stored on player, need town context to populate fully)
+	ps.ActiveNPCQuests = []NPCQuestView{}
+
+	// Stats
+	ps.Stats = &StatsView{
+		TotalKills:      p.Stats.TotalKills,
+		TotalDeaths:     p.Stats.TotalDeaths,
+		KillsByRarity:   p.Stats.KillsByRarity,
+		BossesKilled:    p.Stats.BossesKilled,
+		TotalXPEarned:   p.Stats.TotalXPEarned,
+		HighestCombo:    p.Stats.HighestCombo,
+		CurrentCombo:    p.Stats.CurrentCombo,
+		PvPWins:         p.Stats.PvPWins,
+		PvPLosses:       p.Stats.PvPLosses,
+		DungeonsCleared: p.Stats.DungeonsCleared,
+	}
 
 	return ps
 }
@@ -581,6 +641,40 @@ func MakeVillageView(village *models.Village) *VillageView {
 
 // --- Town view structs ---
 
+// NPCQuestView represents an NPC quest for the frontend.
+type NPCQuestView struct {
+	ID           string `json:"id"`
+	NPCName      string `json:"npc_name"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Type         string `json:"type"`
+	Difficulty   string `json:"difficulty"`
+	TargetName   string `json:"target_name"`
+	TargetCount  int    `json:"target_count"`
+	CurrentCount int    `json:"current_count"`
+	RewardXP     int    `json:"reward_xp"`
+	RewardGold   int    `json:"reward_gold"`
+	RewardRep    int    `json:"reward_rep"`
+	RepRequired  int    `json:"rep_required"`
+	AcceptedBy   string `json:"accepted_by"`
+	Completed    bool   `json:"completed"`
+}
+
+// NPCView represents an NPC townsfolk for the frontend.
+type NPCView struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Title        string `json:"title"`
+	Archetype    string `json:"archetype"`
+	Mood         string `json:"mood"`
+	Location     string `json:"location"`
+	Level        int    `json:"level"`
+	Relationship int    `json:"relationship"`
+	RelLabel     string `json:"rel_label"`
+	QuestGiver   bool   `json:"quest_giver"`
+	IsAlive      bool   `json:"is_alive"`
+}
+
 // TownView represents town state for the frontend.
 type TownView struct {
 	Name           string           `json:"name"`
@@ -591,6 +685,8 @@ type TownView struct {
 	FetchQuests    []FetchQuestView `json:"fetch_quests"`
 	IsCurrentMayor bool             `json:"is_current_mayor"`
 	AttackLog      []AttackLogView  `json:"attack_log"`
+	Townsfolk      []NPCView        `json:"townsfolk"`
+	NPCQuests      []NPCQuestView   `json:"npc_quests"`
 }
 
 // InnGuestView represents an inn guest for the frontend.
@@ -717,6 +813,56 @@ func MakeTownView(town *models.Town, accountID int64, charName string) *TownView
 		})
 	}
 
+	// Townsfolk
+	tv.Townsfolk = make([]NPCView, 0, len(town.Townsfolk))
+	for _, npc := range town.Townsfolk {
+		if !npc.IsAlive {
+			continue
+		}
+		rel := 0
+		if npc.Relationships != nil {
+			rel = npc.Relationships[charName]
+		}
+		tv.Townsfolk = append(tv.Townsfolk, NPCView{
+			ID:           npc.ID,
+			Name:         npc.Name,
+			Title:        npc.Title,
+			Archetype:    npc.Personality.Archetype,
+			Mood:         npc.CurrentMood,
+			Location:     npc.LocationName,
+			Level:        npc.Level,
+			Relationship: rel,
+			RelLabel:     game.RelationshipLabel(rel),
+			QuestGiver:   npc.QuestGiver,
+			IsAlive:      npc.IsAlive,
+		})
+	}
+
+	// NPC Quests
+	tv.NPCQuests = make([]NPCQuestView, 0, len(town.NPCQuests))
+	for _, q := range town.NPCQuests {
+		if q.Completed || q.Failed {
+			continue
+		}
+		tv.NPCQuests = append(tv.NPCQuests, NPCQuestView{
+			ID:           q.ID,
+			NPCName:      q.NPCName,
+			Name:         q.Name,
+			Description:  q.Description,
+			Type:         q.Type,
+			Difficulty:   q.Difficulty,
+			TargetName:   q.Requirement.TargetName,
+			TargetCount:  q.Requirement.TargetCount,
+			CurrentCount: q.Requirement.CurrentCount,
+			RewardXP:     q.Reward.XP,
+			RewardGold:   q.Reward.Gold,
+			RewardRep:    q.Reward.Reputation,
+			RepRequired:  q.RepRequired,
+			AcceptedBy:   q.AcceptedBy,
+			Completed:    q.Completed,
+		})
+	}
+
 	return tv
 }
 
@@ -745,6 +891,7 @@ func MakeCombatView(session *GameSession) *CombatView {
 		MonsterMaxMP:      m.ManaTotal,
 		MonsterSP:         m.StaminaRemaining,
 		MonsterMaxSP:      m.StaminaTotal,
+		MonsterRarity:     string(game.NormalizeRarity(m.Rarity)),
 		MonsterIsBoss:     m.IsBoss,
 		MonsterIsGuardian: m.IsSkillGuardian,
 		HuntsRemaining:    c.HuntsRemaining,

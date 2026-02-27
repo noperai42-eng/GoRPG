@@ -89,6 +89,28 @@ func (s *Store) createTables() error {
 			name TEXT PRIMARY KEY,
 			data TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS world_analytics (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			character_name TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			event_data TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_analytics_type ON world_analytics(event_type)`,
+		`CREATE TABLE IF NOT EXISTS leaderboards (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			character_name TEXT NOT NULL,
+			account_id INTEGER NOT NULL,
+			total_kills INTEGER DEFAULT 0,
+			total_deaths INTEGER DEFAULT 0,
+			bosses_killed INTEGER DEFAULT 0,
+			pvp_wins INTEGER DEFAULT 0,
+			player_level INTEGER DEFAULT 1,
+			highest_combo INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(account_id, character_name)
+		)`,
 	}
 
 	for _, stmt := range statements {
@@ -483,4 +505,118 @@ func (s *Store) LoadTown(name string) (models.Town, error) {
 		return models.Town{}, fmt.Errorf("failed to unmarshal town: %w", err)
 	}
 	return town, nil
+}
+
+// ---------------------------------------------------------------------------
+// Analytics methods
+// ---------------------------------------------------------------------------
+
+// RecordAnalyticsEvent logs a world event for gossip and history.
+func (s *Store) RecordAnalyticsEvent(accountID int64, charName, eventType, eventData string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO world_analytics (account_id, character_name, event_type, event_data) VALUES (?, ?, ?, ?)",
+		accountID, charName, eventType, eventData,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to record analytics event: %w", err)
+	}
+	return nil
+}
+
+// GetRecentEvents retrieves the most recent events of a given type.
+// AnalyticsEvent represents a single analytics event with metadata.
+type AnalyticsEvent struct {
+	CharacterName string
+	EventType     string
+	EventData     string
+}
+
+func (s *Store) GetRecentEvents(eventType string, limit int) ([]AnalyticsEvent, error) {
+	rows, err := s.db.Query(
+		"SELECT character_name, event_type, event_data FROM world_analytics WHERE event_type = ? ORDER BY created_at DESC LIMIT ?",
+		eventType, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []AnalyticsEvent
+	for rows.Next() {
+		var evt AnalyticsEvent
+		if err := rows.Scan(&evt.CharacterName, &evt.EventType, &evt.EventData); err != nil {
+			return nil, fmt.Errorf("failed to scan event: %w", err)
+		}
+		events = append(events, evt)
+	}
+	return events, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard methods
+// ---------------------------------------------------------------------------
+
+// LeaderboardEntry represents a single leaderboard row.
+type LeaderboardEntry struct {
+	CharacterName string `json:"character_name"`
+	AccountID     int64  `json:"account_id"`
+	TotalKills    int    `json:"total_kills"`
+	TotalDeaths   int    `json:"total_deaths"`
+	BossesKilled  int    `json:"bosses_killed"`
+	PvPWins       int    `json:"pvp_wins"`
+	PlayerLevel   int    `json:"player_level"`
+	HighestCombo  int    `json:"highest_combo"`
+}
+
+// UpdateLeaderboard upserts the leaderboard row for a character.
+func (s *Store) UpdateLeaderboard(accountID int64, charName string, stats models.CharacterStats, level int) error {
+	_, err := s.db.Exec(
+		`INSERT INTO leaderboards (character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(account_id, character_name)
+		 DO UPDATE SET total_kills=?, total_deaths=?, bosses_killed=?, pvp_wins=?, player_level=?, highest_combo=?, updated_at=CURRENT_TIMESTAMP`,
+		charName, accountID, stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo,
+		stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update leaderboard: %w", err)
+	}
+	return nil
+}
+
+// GetLeaderboard returns the top entries for a given category.
+func (s *Store) GetLeaderboard(category string, limit int) ([]LeaderboardEntry, error) {
+	orderCol := "total_kills"
+	switch category {
+	case "kills":
+		orderCol = "total_kills"
+	case "level":
+		orderCol = "player_level"
+	case "bosses":
+		orderCol = "bosses_killed"
+	case "pvp_wins":
+		orderCol = "pvp_wins"
+	case "combo":
+		orderCol = "highest_combo"
+	}
+
+	query := fmt.Sprintf(
+		"SELECT character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo FROM leaderboards ORDER BY %s DESC LIMIT ?",
+		orderCol,
+	)
+	rows, err := s.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query leaderboard: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []LeaderboardEntry
+	for rows.Next() {
+		var e LeaderboardEntry
+		if err := rows.Scan(&e.CharacterName, &e.AccountID, &e.TotalKills, &e.TotalDeaths, &e.BossesKilled, &e.PvPWins, &e.PlayerLevel, &e.HighestCombo); err != nil {
+			return nil, fmt.Errorf("failed to scan leaderboard entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }
