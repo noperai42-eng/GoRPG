@@ -33,6 +33,7 @@ const (
 	StateVillageViewVillagers    = "village_view_villagers"
 	StateVillageAssignTask       = "village_assign_task"
 	StateVillageAssignResource   = "village_assign_resource"
+	StateVillageBatchAssign      = "village_batch_assign"
 	StateVillageHireGuard        = "village_hire_guard"
 	StateVillageCrafting         = "village_crafting"
 	StateVillageCraftPotion      = "village_craft_potion"

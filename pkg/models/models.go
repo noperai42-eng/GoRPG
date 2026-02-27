@@ -31,6 +31,7 @@ type Village struct {
 	LastTideTime     int64          `json:"last_tide_time"`
 	TideInterval     int            `json:"tide_interval"`
 	ActiveGuards     []Guard        `json:"active_guards"`
+	LastHarvestTime  int64          `json:"last_harvest_time"`
 }
 
 type Villager struct {

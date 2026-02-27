@@ -378,6 +378,36 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Start harvest ticker goroutine — checks every 15 seconds.
+	go func() {
+		harvestTicker := time.NewTicker(15 * time.Second)
+		defer harvestTicker.Stop()
+		for {
+			select {
+			case <-harvestTicker.C:
+				result := s.engine.ProcessHarvestTick(sessionID)
+				if result == nil {
+					continue
+				}
+				resp := engine.GameResponse{
+					Type:     "harvest",
+					Messages: result.Messages,
+					State: &engine.StateData{
+						Screen:  "harvest_tick",
+						Player:  result.Player,
+						Village: result.Village,
+					},
+				}
+				if err := writeJSON(resp); err != nil {
+					log.Printf("failed to send harvest tick to %s: %v", username, err)
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	// Configure read side.
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetReadDeadline(time.Now().Add(pongWait))

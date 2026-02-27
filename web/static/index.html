@@ -486,6 +486,24 @@
                                 <div class="stat-row"><span class="stat-label" x-text="name"></span><span class="stat-value" x-text="'+' + amount + '/tick'"></span></div>
                             </template>
                         </div>
+
+                        <!-- Harvest Timer -->
+                        <div class="card" x-show="activeHarvesters().length > 0">
+                            <div class="section-header">Harvest Timer</div>
+                            <div class="stat-row">
+                                <span class="stat-label">Next harvest in</span>
+                                <span class="stat-value" x-text="harvestCountdown() + 's'" style="color: var(--color-info);"></span>
+                            </div>
+                            <div style="margin-top: 0.5rem;">
+                                <div class="section-header" style="font-size: 0.8rem;">Active Harvesters</div>
+                                <template x-for="h in activeHarvesters()" :key="h.name">
+                                    <div class="stat-row">
+                                        <span class="stat-label" x-text="h.name"></span>
+                                        <span class="stat-value" x-text="h.harvest_type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Villagers -->
@@ -530,11 +548,30 @@
                         </div>
                     </div>
 
-                    <!-- Crafting & Defenses: server-driven via options -->
-                    <div x-show="(subTab === 'crafting' || subTab === 'defenses') && v" class="village-content">
+                    <!-- Crafting: show resources + server options -->
+                    <div x-show="subTab === 'crafting' && v" class="village-content">
+                        <div class="card" x-show="p && p.resources">
+                            <div class="section-header">Your Resources</div>
+                            <div class="resource-grid">
+                                <template x-for="[name, count] in Object.entries(p.resources || {})" :key="name">
+                                    <div class="resource-item" x-show="count > 0 || ['Lumber','Gold','Iron','Sand','Stone'].includes(name)">
+                                        <span class="resource-name" x-text="name"></span>
+                                        <span class="resource-count" x-text="count"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                         <div class="card">
-                            <div class="section-header" x-text="subTab === 'crafting' ? 'Crafting' : 'Defenses'"></div>
-                            <p style="color: var(--text-muted); font-size: 0.85rem;">Use the village menu options to manage crafting and defenses.</p>
+                            <div class="section-header">Crafting</div>
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">Use the village menu options below to craft items.</p>
+                        </div>
+                    </div>
+
+                    <!-- Defenses: server-driven via options -->
+                    <div x-show="subTab === 'defenses' && v" class="village-content">
+                        <div class="card">
+                            <div class="section-header">Defenses</div>
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">Use the village menu options below to build defenses.</p>
                         </div>
                     </div>
 

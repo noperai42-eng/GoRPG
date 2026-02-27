@@ -73,15 +73,13 @@ func buildVillageMainResponse(session *GameSession, extraMsgs []GameMessage) Gam
 
 func (e *Engine) handleVillageMain(session *GameSession, cmd GameCommand) GameResponse {
 	village := session.SelectedVillage
-	player := session.Player
 
 	if village == nil {
 		session.State = StateMainMenu
 		return BuildMainMenuResponse(session)
 	}
 
-	// Process auto-collection and upgrades
-	game.ProcessVillageResourceCollection(village, player)
+	// Process village upgrades (harvesting is now timer-based via WebSocket)
 	game.UpgradeVillage(village)
 
 	extraMsgs := []GameMessage{}
@@ -218,6 +216,14 @@ func (e *Engine) handleVillageAssignTask(session *GameSession, cmd GameCommand) 
 		return resp
 	}
 
+	// Count idle harvesters for batch assign option
+	idleCount := 0
+	for _, idx := range harvesters {
+		if village.Villagers[idx].HarvestType == "" {
+			idleCount++
+		}
+	}
+
 	// If cmd.Type is "init", show the harvester selection
 	if cmd.Type == "init" {
 		msgs := []GameMessage{
@@ -229,6 +235,9 @@ func (e *Engine) handleVillageAssignTask(session *GameSession, cmd GameCommand) 
 		}
 
 		options := []MenuOption{}
+		if idleCount > 0 {
+			options = append(options, Opt("all", fmt.Sprintf("Assign All Idle Harvesters (%d)", idleCount)))
+		}
 		for i, idx := range harvesters {
 			v := village.Villagers[idx]
 			taskInfo := "Idle"
@@ -247,6 +256,15 @@ func (e *Engine) handleVillageAssignTask(session *GameSession, cmd GameCommand) 
 			State:    &StateData{Screen: "village_assign_task", Player: MakePlayerState(session.Player)},
 			Options:  options,
 		}
+	}
+
+	// Batch assign all idle harvesters
+	if cmd.Value == "all" {
+		if idleCount == 0 {
+			return ErrorResponse("No idle harvesters to assign!")
+		}
+		session.State = StateVillageBatchAssign
+		return e.handleVillageBatchAssign(session, GameCommand{Type: "init"})
 	}
 
 	// A harvester was selected - store index and move to resource selection
@@ -304,6 +322,64 @@ func (e *Engine) handleVillageAssignResource(session *GameSession, cmd GameComma
 	resp.Messages = append([]GameMessage{
 		Msg(fmt.Sprintf("%s is now harvesting %s!", village.Villagers[villagerIdx].Name, data.ResourceTypes[resIdx-1]), "system"),
 		Msg("+10 Village XP", "system"),
+	}, resp.Messages...)
+	return resp
+}
+
+func (e *Engine) handleVillageBatchAssign(session *GameSession, cmd GameCommand) GameResponse {
+	village := session.SelectedVillage
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateVillageAssignTask
+		return e.handleVillageAssignTask(session, GameCommand{Type: "init"})
+	}
+
+	if cmd.Type == "init" {
+		msgs := []GameMessage{
+			Msg("============================================================", "system"),
+			Msg("ASSIGN ALL IDLE HARVESTERS", "system"),
+			Msg("============================================================", "system"),
+			Msg("", "system"),
+			Msg("Choose a resource for all idle harvesters:", "system"),
+		}
+		options := []MenuOption{}
+		for i, res := range data.ResourceTypes {
+			options = append(options, Opt(strconv.Itoa(i+1), res))
+		}
+		options = append(options, Opt("0", "Cancel"))
+
+		session.State = StateVillageBatchAssign
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "village_batch_assign", Player: MakePlayerState(session.Player)},
+			Options:  options,
+		}
+	}
+
+	resIdx, err := strconv.Atoi(cmd.Value)
+	if err != nil || resIdx < 1 || resIdx > len(data.ResourceTypes) {
+		return ErrorResponse("Invalid choice!")
+	}
+
+	resourceName := data.ResourceTypes[resIdx-1]
+	assigned := 0
+	for i := range village.Villagers {
+		if village.Villagers[i].Role == "harvester" && village.Villagers[i].HarvestType == "" {
+			village.Villagers[i].HarvestType = resourceName
+			village.Villagers[i].AssignedTask = "harvesting"
+			village.Experience += 10
+			assigned++
+		}
+	}
+
+	e.saveVillage(session)
+
+	session.State = StateVillageMain
+	resp := e.handleVillageMain(session, GameCommand{Type: "init"})
+	resp.Messages = append([]GameMessage{
+		Msg(fmt.Sprintf("Assigned %d idle harvesters to %s!", assigned, resourceName), "system"),
+		Msg(fmt.Sprintf("+%d Village XP", assigned*10), "system"),
 	}, resp.Messages...)
 	return resp
 }

@@ -23,6 +23,7 @@ func GenerateVillage(playerName string) models.Village {
 		LastTideTime:     time.Now().Unix(),
 		TideInterval:     3600,
 		ActiveGuards:     []models.Guard{},
+		LastHarvestTime:  time.Now().Unix(),
 	}
 }
 
@@ -53,8 +54,17 @@ func RescueVillager(village *models.Village) models.Villager {
 	return villager
 }
 
-func ProcessVillageResourceCollection(village *models.Village, player *models.Character) {
-	collected := false
+// HarvestResult describes a single villager's harvest collection.
+type HarvestResult struct {
+	VillagerName string
+	Amount       int
+	ResourceType string
+}
+
+// ProcessVillageResourceCollection collects resources from active harvesters,
+// updates the player's resource storage, and returns what was collected.
+func ProcessVillageResourceCollection(village *models.Village, player *models.Character) []HarvestResult {
+	var results []HarvestResult
 	for _, villager := range village.Villagers {
 		if villager.Role == "harvester" && villager.HarvestType != "" {
 			amount := villager.Efficiency + villager.Level/2
@@ -69,13 +79,29 @@ func ProcessVillageResourceCollection(village *models.Village, player *models.Ch
 					RollModifier: 0,
 				}
 			}
-			fmt.Printf("  %s collected %d %s\n", villager.Name, amount, villager.HarvestType)
-			collected = true
+			results = append(results, HarvestResult{
+				VillagerName: villager.Name,
+				Amount:       amount,
+				ResourceType: villager.HarvestType,
+			})
 		}
 	}
-	if !collected {
-		fmt.Println("  No villagers are currently harvesting resources.")
+	return results
+}
+
+// ShouldHarvest returns true if 60+ seconds have elapsed since the last harvest.
+func ShouldHarvest(village *models.Village) bool {
+	return time.Now().Unix()-village.LastHarvestTime >= 60
+}
+
+// HasActiveHarvesters returns true if any villager is actively harvesting.
+func HasActiveHarvesters(village *models.Village) bool {
+	for _, v := range village.Villagers {
+		if v.Role == "harvester" && v.HarvestType != "" {
+			return true
+		}
 	}
+	return false
 }
 
 func UpgradeVillage(village *models.Village) {

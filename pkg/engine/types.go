@@ -113,6 +113,7 @@ type VillageView struct {
 	DefenseLevel     int                 `json:"defense_level"`
 	UnlockedCrafting []string            `json:"unlocked_crafting"`
 	ResourcePerTick  map[string]int      `json:"resource_per_tick"`
+	LastHarvestTime  int64               `json:"last_harvest_time"`
 }
 
 // VillagerView represents a villager for the frontend.
@@ -513,6 +514,7 @@ func MakeVillageView(village *models.Village) *VillageView {
 		DefenseLevel:     village.DefenseLevel,
 		UnlockedCrafting: village.UnlockedCrafting,
 		ResourcePerTick:  village.ResourcePerTick,
+		LastHarvestTime:  village.LastHarvestTime,
 	}
 
 	if vv.UnlockedCrafting == nil {

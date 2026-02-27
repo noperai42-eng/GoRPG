@@ -32,6 +32,8 @@ document.addEventListener('alpine:init', () => {
         },
 
         handleResponse(resp) {
+            const isHarvestPush = resp.type === 'harvest';
+
             // Update player state
             if (resp.state) {
                 if (resp.state.player) {
@@ -67,12 +69,16 @@ document.addEventListener('alpine:init', () => {
                 if (resp.state.town) {
                     this.town = resp.state.town;
                 }
-                this.serverScreen = resp.state.screen || null;
+                if (!isHarvestPush) {
+                    this.serverScreen = resp.state.screen || null;
+                }
             }
 
-            // Update options
-            this.options = resp.options || [];
-            this.prompt = resp.prompt || null;
+            // Update options (skip for harvest push to avoid clearing current menu)
+            if (!isHarvestPush) {
+                this.options = resp.options || [];
+                this.prompt = resp.prompt || null;
+            }
 
             // Route messages
             if (resp.messages && resp.messages.length > 0) {

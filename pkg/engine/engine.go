@@ -240,6 +240,8 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleVillageAssignTask(session, cmd)
 	case StateVillageAssignResource:
 		return e.handleVillageAssignResource(session, cmd)
+	case StateVillageBatchAssign:
+		return e.handleVillageBatchAssign(session, cmd)
 	case StateVillageHireGuard:
 		return e.handleVillageHireGuard(session, cmd)
 	case StateVillageCrafting:
@@ -388,6 +390,62 @@ func (e *Engine) saveSessionToDB(session *GameSession) error {
 	}
 
 	return nil
+}
+
+// HarvestTickResult holds the result of a harvest tick for server push.
+type HarvestTickResult struct {
+	Messages []GameMessage
+	Player   *PlayerState
+	Village  *VillageView
+}
+
+// ProcessHarvestTick checks if harvest is due for the session and processes it.
+// Returns nil if no harvest occurred.
+func (e *Engine) ProcessHarvestTick(sessionID string) *HarvestTickResult {
+	e.mu.RLock()
+	session, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+
+	if !ok || session.Player == nil {
+		return nil
+	}
+
+	villageName := session.Player.VillageName
+	if villageName == "" || session.GameState.Villages == nil {
+		return nil
+	}
+
+	village, exists := session.GameState.Villages[villageName]
+	if !exists {
+		return nil
+	}
+
+	if !game.HasActiveHarvesters(&village) || !game.ShouldHarvest(&village) {
+		return nil
+	}
+
+	results := game.ProcessVillageResourceCollection(&village, session.Player)
+	if len(results) == 0 {
+		return nil
+	}
+
+	village.LastHarvestTime = time.Now().Unix()
+	session.GameState.Villages[villageName] = village
+	session.GameState.CharactersMap[session.Player.Name] = *session.Player
+
+	msgs := []GameMessage{}
+	for _, r := range results {
+		msgs = append(msgs, Msg(fmt.Sprintf("%s collected %d %s", r.VillagerName, r.Amount, r.ResourceType), "loot"))
+	}
+
+	// Save
+	e.SaveSession(sessionID)
+
+	return &HarvestTickResult{
+		Messages: msgs,
+		Player:   MakePlayerState(session.Player),
+		Village:  MakeVillageView(&village),
+	}
 }
 
 // RemoveSession removes a session from the engine.
