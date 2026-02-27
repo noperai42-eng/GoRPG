@@ -118,6 +118,7 @@ type CombatContext struct {
 	HasGuards      bool
 	GuardianLocationName string // non-empty = fighting a location guardian
 	HuntsRemaining       int
+	ContinuousHunt       bool // true = keep hunting until player stops
 	IsAutoPlay           bool
 	AutoPlaySpeed  string
 	AutoPlayFights int

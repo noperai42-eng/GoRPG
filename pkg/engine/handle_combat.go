@@ -313,6 +313,7 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 
 	case "7": // Stop Hunting - end the hunt chain and return to main menu
 		combat.Turn--
+		combat.ContinuousHunt = false
 		combat.HuntsRemaining = 0
 		msgs = append(msgs, Msg("You stop hunting and return home.", "system"))
 		session.State = StateMainMenu
@@ -346,7 +347,7 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 			}
 
 			// Check hunts remaining
-			if combat.HuntsRemaining > 0 {
+			if combat.ContinuousHunt || combat.HuntsRemaining > 0 {
 				return e.startNextHunt(session, msgs)
 			}
 
@@ -839,7 +840,7 @@ func (e *Engine) handleCombatSkillReward(session *GameSession, cmd GameCommand) 
 	}
 
 	// Check if more hunts remain
-	if combat.HuntsRemaining > 0 {
+	if combat.ContinuousHunt || combat.HuntsRemaining > 0 {
 		return e.startNextHunt(session, msgs)
 	}
 
@@ -1168,7 +1169,7 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	}
 
 	// Check if more hunts remain
-	if combat.HuntsRemaining > 0 {
+	if combat.ContinuousHunt || combat.HuntsRemaining > 0 {
 		return e.startNextHunt(session, msgs)
 	}
 
@@ -1289,7 +1290,7 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 	}
 
 	// Check if more hunts remain
-	if combat.HuntsRemaining > 0 {
+	if combat.ContinuousHunt || combat.HuntsRemaining > 0 {
 		// Resurrect player
 		player.HitpointsRemaining = player.HitpointsTotal
 		player.ManaRemaining = player.ManaTotal
@@ -1431,7 +1432,9 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 	player := session.Player
 	location := combat.Location
 
-	combat.HuntsRemaining--
+	if !combat.ContinuousHunt {
+		combat.HuntsRemaining--
+	}
 
 	// Resurrect if dead
 	if player.HitpointsRemaining <= 0 {
@@ -1463,6 +1466,7 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 
 	// Preserve hunt tracking and autoplay fields from previous combat
 	guardianLocationName := combat.GuardianLocationName
+	continuousHunt := combat.ContinuousHunt
 	isAutoPlay := combat.IsAutoPlay
 	autoPlaySpeed := combat.AutoPlaySpeed
 	autoPlayFights := combat.AutoPlayFights + 1
@@ -1486,6 +1490,7 @@ func (e *Engine) startNextHunt(session *GameSession, msgs []GameMessage) GameRes
 		CombatGuards:         combatGuards,
 		HasGuards:            hasGuards,
 		HuntsRemaining:       huntsRemaining,
+		ContinuousHunt:       continuousHunt,
 		IsAutoPlay:           isAutoPlay,
 		AutoPlaySpeed:        autoPlaySpeed,
 		AutoPlayFights:       autoPlayFights,

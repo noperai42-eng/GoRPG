@@ -473,8 +473,7 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 
 	session.SelectedLocation = locName
 
-	// Hunts chain indefinitely until player stops; sentinel value keeps the loop going
-	huntCount := 999999
+	huntCount := 1
 
 	// Check if player has Tracking skill
 	hasTracking := false
@@ -514,6 +513,7 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 
 		session.Combat = &CombatContext{
 			HuntsRemaining: huntCount,
+			ContinuousHunt: true,
 			Location:       &loc,
 		}
 
@@ -529,6 +529,8 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 	mobLoc := rand.Intn(len(loc.Monsters))
 	mob := loc.Monsters[mobLoc]
 
+	// Set continuous hunt so startCombat picks it up
+	session.Combat = &CombatContext{ContinuousHunt: true}
 	return e.startCombat(session, &loc, mobLoc, mob, huntCount)
 }
 
@@ -578,10 +580,12 @@ func (e *Engine) startCombat(session *GameSession, location *models.Location, mo
 		player.Resurrections++
 	}
 
-	// Preserve guardian location name if set before startCombat
+	// Preserve fields from pre-combat context (e.g. tracking sets ContinuousHunt)
 	guardianLocName := ""
+	continuousHunt := false
 	if session.Combat != nil {
 		guardianLocName = session.Combat.GuardianLocationName
+		continuousHunt = session.Combat.ContinuousHunt
 	}
 
 	session.Combat = &CombatContext{
@@ -593,6 +597,7 @@ func (e *Engine) startCombat(session *GameSession, location *models.Location, mo
 		PlayerWon:            false,
 		IsDefending:          false,
 		HuntsRemaining:       huntsRemaining,
+		ContinuousHunt:       continuousHunt,
 		GuardianLocationName: guardianLocName,
 	}
 

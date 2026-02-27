@@ -255,6 +255,7 @@ type CombatView struct {
 	GuardedSkillName  string       `json:"guarded_skill_name,omitempty"`
 	Guards            []GuardView  `json:"guards,omitempty"`
 	HuntsRemaining    int          `json:"hunts_remaining"`
+	ContinuousHunt    bool         `json:"continuous_hunt"`
 }
 
 // EffectView shows a status effect for display.
@@ -895,6 +896,7 @@ func MakeCombatView(session *GameSession) *CombatView {
 		MonsterIsBoss:     m.IsBoss,
 		MonsterIsGuardian: m.IsSkillGuardian,
 		HuntsRemaining:    c.HuntsRemaining,
+		ContinuousHunt:    c.ContinuousHunt,
 	}
 
 	if m.IsSkillGuardian {
