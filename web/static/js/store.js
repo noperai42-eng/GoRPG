@@ -32,7 +32,7 @@ document.addEventListener('alpine:init', () => {
             }
             // Fetch server version
             fetch('/api/version').then(r => r.json()).then(d => {
-                if (d.version) this.version = 'v' + d.version;
+                if (d.version) Alpine.store('game').version = 'v' + d.version;
             }).catch(() => {});
         },
 

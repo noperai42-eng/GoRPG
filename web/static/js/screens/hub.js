@@ -44,17 +44,10 @@ function hubScreen() {
 
         // Quick actions
         goHunt() {
-            // Send hunt command to server to enter hunt_location_select state,
-            // then switch to map tab (routing happens automatically via _routeScreen)
-            if (this.$store.game.serverScreen === 'main_menu') {
-                this.$store.game.sendCommand('select', '3');
-            } else {
-                // Already past main menu — just switch to map tab
-                this.$store.game.activeTab = 'map';
-            }
+            this.$store.game.sendCommand('select', 'hunt');
         },
         goHarvest() {
-            this.$store.game.sendCommand('select', '1');
+            this.$store.game.sendCommand('select', 'harvest');
         },
         goAutoPlay() {
             this.$store.game.sendCommand('select', '8');

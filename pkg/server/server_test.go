@@ -24,7 +24,7 @@ func setupTestServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Cleanup(func() { store.Close() })
 
 	authSvc := auth.NewAuthService(store, "test-secret-key")
-	srv := NewServer(store, authSvc, "")
+	srv := NewServer(store, authSvc, "", "test")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts

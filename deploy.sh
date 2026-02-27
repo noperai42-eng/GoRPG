@@ -26,6 +26,10 @@ fi
 echo "Building server..."
 go build -ldflags "-X main.Version=${NEW_VERSION}" -o server ./cmd/server/
 
+# Run smoke tests
+echo "Running smoke tests..."
+go test ./pkg/server/ -run TestSmoke -v -timeout 120s || exit 1
+
 # Run
 echo "Starting server on :8080..."
 ./server "$@"

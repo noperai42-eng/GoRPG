@@ -69,9 +69,19 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		staticDir = filepath.Join(filepath.Dir(thisFile), "..", "..", "web", "static")
 	}
 	fs := http.FileServer(http.Dir(staticDir))
-	s.mux.Handle("/", fs)
+	s.mux.Handle("/", noCacheStaticHandler(fs))
 
 	return s
+}
+
+// noCacheStaticHandler wraps a file server to set no-cache headers for JS and CSS files.
+func noCacheStaticHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".js") || strings.HasSuffix(r.URL.Path, ".css") {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ServeHTTP delegates to the internal mux so Server satisfies http.Handler.

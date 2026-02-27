@@ -192,6 +192,24 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 			session.SelectedTown = nil
 			session.State = StateMainMenu
 			return BuildMainMenuResponse(session)
+		case "hunt":
+			// Go to hunt from any state — reset to main menu first, then route.
+			if session.SelectedVillage != nil {
+				e.saveVillage(session)
+				session.SelectedVillage = nil
+			}
+			session.SelectedTown = nil
+			session.State = StateMainMenu
+			return e.handleMainMenu(session, GameCommand{Type: "select", Value: "3"})
+		case "harvest":
+			// Go to harvest from any state.
+			if session.SelectedVillage != nil {
+				e.saveVillage(session)
+				session.SelectedVillage = nil
+			}
+			session.SelectedTown = nil
+			session.State = StateMainMenu
+			return e.handleMainMenu(session, GameCommand{Type: "select", Value: "1"})
 		case "10":
 			return e.handleMainMenu(session, cmd)
 		case "11":
