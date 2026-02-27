@@ -12,7 +12,8 @@ document.addEventListener('alpine:init', () => {
         prompt: null,            // current server prompt
         toasts: [],              // [{text, category, id}]
         combatLog: [],           // messages during combat
-        recentMessages: [],      // last 5 messages for hub
+        recentMessages: [],      // event groups: [{id, timestamp, messages, collapsed}]
+        _groupId: 0,
         pendingAction: null,     // for two-step command chains
         dropdown: null,          // 'items' | 'skills' | null - combat dropdown
         showCompletedQuests: false,
@@ -87,15 +88,24 @@ document.addEventListener('alpine:init', () => {
                         this.combatLog = this.combatLog.slice(-80);
                     }
                 } else {
-                    // Outside combat, messages become toasts + recent feed
+                    // Outside combat, messages become toasts + grouped event feed
+                    const batchMsgs = [];
                     for (const msg of resp.messages) {
                         if (msg.text && msg.text.trim()) {
                             this.addToast(msg.text, msg.category || 'system');
-                            this.recentMessages.push(msg);
+                            batchMsgs.push({ text: msg.text, category: msg.category || 'system' });
                         }
                     }
-                    if (this.recentMessages.length > 20) {
-                        this.recentMessages = this.recentMessages.slice(-20);
+                    if (batchMsgs.length > 0) {
+                        this.recentMessages.push({
+                            id: ++this._groupId,
+                            timestamp: Date.now(),
+                            messages: batchMsgs,
+                            collapsed: true
+                        });
+                        if (this.recentMessages.length > 15) {
+                            this.recentMessages = this.recentMessages.slice(-15);
+                        }
                     }
                 }
             }
@@ -229,6 +239,27 @@ document.addEventListener('alpine:init', () => {
         barPct(current, max) {
             if (max <= 0) return '0%';
             return Math.max(0, Math.min(100, (current / max) * 100)) + '%';
+        },
+
+        // Toggle an event group's collapsed state
+        toggleGroup(groupId) {
+            const group = this.recentMessages.find(g => g.id === groupId);
+            if (group) group.collapsed = !group.collapsed;
+        },
+
+        // Pick the most interesting message from a group as its header
+        groupHeader(group) {
+            const priority = ['levelup','loot','combat','heal','damage','buff','debuff','narrative','system','error'];
+            let best = group.messages[0];
+            let bestIdx = priority.length;
+            for (const msg of group.messages) {
+                const idx = priority.indexOf(msg.category);
+                if (idx !== -1 && idx < bestIdx) {
+                    best = msg;
+                    bestIdx = idx;
+                }
+            }
+            return best;
         },
     });
 });

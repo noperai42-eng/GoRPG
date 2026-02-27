@@ -69,6 +69,27 @@ function hubScreen() {
             this.$store.game.sendCommand('select', 'exit');
         },
 
+        // Activity feed helpers
+        categoryIcon(category) {
+            const icons = {
+                system: '\u2699', combat: '\u2694', damage: '\uD83D\uDCA5',
+                heal: '\u2764', loot: '\uD83C\uDF81', buff: '\u2B06',
+                debuff: '\u2B07', narrative: '\uD83D\uDCDC', error: '\u26A0',
+                levelup: '\u2B50'
+            };
+            return icons[category] || '\u2699';
+        },
+
+        relativeTime(timestamp) {
+            const diff = Math.floor((Date.now() - timestamp) / 1000);
+            if (diff < 5) return 'just now';
+            if (diff < 60) return diff + 's ago';
+            const mins = Math.floor(diff / 60);
+            if (mins < 60) return mins + 'm ago';
+            const hrs = Math.floor(mins / 60);
+            return hrs + 'h ago';
+        },
+
         // Handle autoplay menu options
         autoplayAction(key) {
             this.$store.game.sendCommand('select', key);

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="css/variables.css?v=4">
     <link rel="stylesheet" href="css/layout.css?v=4">
     <link rel="stylesheet" href="css/auth.css?v=4">
-    <link rel="stylesheet" href="css/components.css?v=4">
+    <link rel="stylesheet" href="css/components.css?v=5">
     <link rel="stylesheet" href="css/hub.css?v=4">
     <link rel="stylesheet" href="css/map.css?v=4">
     <link rel="stylesheet" href="css/combat.css?v=4">
@@ -348,8 +348,35 @@
                             <div class="card">
                                 <div class="section-header">Activity</div>
                                 <div class="activity-feed">
-                                    <template x-for="(msg, i) in $store.game.recentMessages.slice(-10).reverse()" :key="i">
-                                        <div class="activity-item" :class="msg.category" x-text="msg.text"></div>
+                                    <template x-for="group in $store.game.recentMessages.slice(-10).reverse()" :key="group.id">
+                                        <!-- Single-message group: flat row -->
+                                        <template x-if="group.messages.length === 1">
+                                            <div class="activity-item" :class="group.messages[0].category">
+                                                <span class="activity-icon" x-text="categoryIcon(group.messages[0].category)"></span>
+                                                <span class="activity-text" x-text="group.messages[0].text"></span>
+                                                <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
+                                            </div>
+                                        </template>
+                                        <!-- Multi-message group: collapsible card -->
+                                        <template x-if="group.messages.length > 1">
+                                            <div class="activity-group" :class="$store.game.groupHeader(group).category">
+                                                <div class="activity-group-header" @click="$store.game.toggleGroup(group.id)">
+                                                    <span class="activity-icon" x-text="categoryIcon($store.game.groupHeader(group).category)"></span>
+                                                    <span class="activity-text" x-text="$store.game.groupHeader(group).text"></span>
+                                                    <span class="activity-group-count" x-text="group.messages.length"></span>
+                                                    <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
+                                                    <span class="activity-chevron" :class="{ open: !group.collapsed }" x-text="group.collapsed ? '\u25B6' : '\u25BC'"></span>
+                                                </div>
+                                                <div class="activity-group-body" x-show="!group.collapsed" x-transition.opacity>
+                                                    <template x-for="(msg, j) in group.messages" :key="j">
+                                                        <div class="activity-item nested" :class="msg.category">
+                                                            <span class="activity-icon" x-text="categoryIcon(msg.category)"></span>
+                                                            <span class="activity-text" x-text="msg.text"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </template>
                                     <div x-show="$store.game.recentMessages.length === 0" style="color: var(--text-muted); font-size: 0.8rem;">No recent activity</div>
                                 </div>
@@ -906,11 +933,11 @@
 <script src="alpine.min.js" defer></script>
 <script src="js/auth.js?v=4"></script>
 <script src="js/websocket.js?v=4"></script>
-<script src="js/store.js?v=4"></script>
+<script src="js/store.js?v=5"></script>
 <script src="js/components/navbar.js?v=4"></script>
 <script src="js/components/toasts.js?v=4"></script>
 <script src="js/components/modals.js?v=4"></script>
-<script src="js/screens/hub.js?v=4"></script>
+<script src="js/screens/hub.js?v=5"></script>
 <script src="js/screens/map.js?v=4"></script>
 <script src="js/screens/combat.js?v=4"></script>
 <script src="js/screens/village.js?v=4"></script>

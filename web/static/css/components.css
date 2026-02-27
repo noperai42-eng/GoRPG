@@ -306,25 +306,110 @@
 .activity-feed {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    max-height: 200px;
+    gap: 0.35rem;
+    max-height: 250px;
     overflow-y: auto;
 }
 
 .activity-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.8rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0.3rem 0.5rem;
     border-left: 2px solid var(--border-color);
     color: var(--text-secondary);
+    border-radius: 0 4px 4px 0;
 }
 
-.activity-item.system { border-left-color: var(--color-system); }
-.activity-item.damage { border-left-color: var(--color-damage); }
-.activity-item.heal { border-left-color: var(--color-heal); }
-.activity-item.loot { border-left-color: var(--color-loot); }
-.activity-item.narrative { border-left-color: var(--color-narrative); }
-.activity-item.levelup { border-left-color: var(--color-levelup); }
-.activity-item.error { border-left-color: var(--color-error); }
+.activity-item.nested {
+    padding: 0.2rem 0.5rem;
+    border-left-width: 2px;
+}
+
+.activity-icon {
+    flex-shrink: 0;
+    width: 1.2em;
+    text-align: center;
+    font-size: 0.85rem;
+}
+
+.activity-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.activity-time {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Activity group (multi-message) */
+.activity-group {
+    border-left: 2px solid var(--border-color);
+    border-radius: 0 6px 6px 0;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.activity-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    transition: background var(--transition-fast);
+    border-radius: 0 6px 6px 0;
+}
+
+.activity-group-header:hover {
+    background: var(--bg-hover);
+}
+
+.activity-group-count {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    padding: 0.05rem 0.4rem;
+    border-radius: 10px;
+    min-width: 1.2rem;
+    text-align: center;
+}
+
+.activity-chevron {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    transition: transform var(--transition-fast);
+}
+
+.activity-group-body {
+    border-top: 1px solid var(--border-subtle);
+    padding: 0.2rem 0 0.2rem 0.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+/* Category colors for activity items */
+.activity-item.system, .activity-group.system { border-left-color: var(--color-system); }
+.activity-item.combat, .activity-group.combat { border-left-color: var(--color-combat); }
+.activity-item.damage, .activity-group.damage { border-left-color: var(--color-damage); }
+.activity-item.heal, .activity-group.heal { border-left-color: var(--color-heal); }
+.activity-item.loot, .activity-group.loot { border-left-color: var(--color-loot); }
+.activity-item.buff, .activity-group.buff { border-left-color: var(--color-buff); }
+.activity-item.debuff, .activity-group.debuff { border-left-color: var(--color-debuff); }
+.activity-item.narrative, .activity-group.narrative { border-left-color: var(--color-narrative); }
+.activity-item.levelup, .activity-group.levelup { border-left-color: var(--color-levelup); }
+.activity-item.error, .activity-group.error { border-left-color: var(--color-error); }
 
 /* ===== Sub-tabs (client-side) ===== */
 .sub-tabs {
