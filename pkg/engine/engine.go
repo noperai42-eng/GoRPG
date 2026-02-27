@@ -182,6 +182,16 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 	// since the frontend tabs can send these from any screen.
 	if cmd.Type == "select" {
 		switch cmd.Value {
+		case "home":
+			// Atomic return to main menu from any state.
+			// Saves village/town context if active.
+			if session.SelectedVillage != nil {
+				e.saveVillage(session)
+				session.SelectedVillage = nil
+			}
+			session.SelectedTown = nil
+			session.State = StateMainMenu
+			return BuildMainMenuResponse(session)
 		case "10":
 			return e.handleMainMenu(session, cmd)
 		case "11":

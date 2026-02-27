@@ -11,6 +11,13 @@ function navbar() {
 
         switchTab(tabId) {
             if (this.$store.game.inCombat) return;
+            const ss = this.$store.game.serverScreen;
+            // If leaving village or town, atomically return to main menu
+            if (tabId !== 'village' && ss && ss.startsWith('village_')) {
+                this.$store.game.sendCommand('select', 'home');
+            } else if (tabId !== 'town' && ss && ss.startsWith('town_')) {
+                this.$store.game.sendCommand('select', 'home');
+            }
             this.$store.game.activeTab = tabId;
         },
 

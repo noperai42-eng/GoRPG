@@ -20,6 +20,7 @@ document.addEventListener('alpine:init', () => {
         autoHunting: false,      // true when auto-hunting through multiple fights
         _autoHuntTimer: null,    // timer ID for auto-hunt delay
         _toastId: 0,
+        version: '',             // server version string
 
         get inCombat() { return this.combat !== null; },
 
@@ -29,6 +30,10 @@ document.addEventListener('alpine:init', () => {
             if (Auth.isLoggedIn()) {
                 this.screen = 'characters';
             }
+            // Fetch server version
+            fetch('/api/version').then(r => r.json()).then(d => {
+                if (d.version) this.version = 'v' + d.version;
+            }).catch(() => {});
         },
 
         handleResponse(resp) {

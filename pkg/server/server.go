@@ -31,6 +31,7 @@ type Server struct {
 	engine   *engine.Engine
 	store    *db.Store
 	auth     *auth.AuthService
+	version  string
 	upgrader websocket.Upgrader
 	mux      *http.ServeMux
 }
@@ -38,11 +39,12 @@ type Server struct {
 // NewServer creates a new Server wired to the given store and auth service.
 // staticDir is the path to the directory containing static web assets; if empty,
 // it defaults to ../../web/static relative to this source file.
-func NewServer(store *db.Store, authService *auth.AuthService, staticDir string) *Server {
+func NewServer(store *db.Store, authService *auth.AuthService, staticDir string, version string) *Server {
 	s := &Server{
-		engine: engine.NewEngineWithStore(store),
-		store:  store,
-		auth:   authService,
+		engine:  engine.NewEngineWithStore(store),
+		store:   store,
+		auth:    authService,
+		version: version,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -56,6 +58,7 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string)
 	s.mux.HandleFunc("/api/register", s.corsWrapper(s.handleRegister))
 	s.mux.HandleFunc("/api/login", s.corsWrapper(s.handleLogin))
 	s.mux.HandleFunc("/api/characters", s.corsWrapper(s.authMiddleware(s.handleCharacters)))
+	s.mux.HandleFunc("/api/version", s.corsWrapper(s.handleVersion))
 
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws/game", s.handleWebSocket)
@@ -214,6 +217,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"token":    token,
 		"username": body.Username,
 	})
+}
+
+// handleVersion handles GET /api/version.
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, http.StatusOK, map[string]string{"version": s.version})
 }
 
 // handleCharacters routes GET and POST /api/characters to the correct handler.

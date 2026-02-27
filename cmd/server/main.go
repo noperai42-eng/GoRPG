@@ -12,6 +12,9 @@ import (
 	"rpg-game/pkg/server"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 func main() {
 	dbPath := flag.String("db", "game.db", "path to SQLite database file")
 	addr := flag.String("addr", ":8080", "listen address")
@@ -25,7 +28,7 @@ func main() {
 	}
 
 	authService := auth.NewAuthService(store, *secret)
-	srv := server.NewServer(store, authService, *staticDir)
+	srv := server.NewServer(store, authService, *staticDir, Version)
 
 	httpServer := &http.Server{
 		Addr:         *addr,
