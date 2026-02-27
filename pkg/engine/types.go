@@ -254,7 +254,6 @@ type CombatView struct {
 	MonsterIsGuardian bool         `json:"monster_is_guardian"`
 	GuardedSkillName  string       `json:"guarded_skill_name,omitempty"`
 	Guards            []GuardView  `json:"guards,omitempty"`
-	HuntsRemaining    int          `json:"hunts_remaining"`
 	ContinuousHunt    bool         `json:"continuous_hunt"`
 }
 
@@ -895,7 +894,6 @@ func MakeCombatView(session *GameSession) *CombatView {
 		MonsterRarity:     string(game.NormalizeRarity(m.Rarity)),
 		MonsterIsBoss:     m.IsBoss,
 		MonsterIsGuardian: m.IsSkillGuardian,
-		HuntsRemaining:    c.HuntsRemaining,
 		ContinuousHunt:    c.ContinuousHunt,
 	}
 

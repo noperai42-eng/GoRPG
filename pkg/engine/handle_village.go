@@ -1674,7 +1674,7 @@ func (e *Engine) handleVillageMonsterTide(session *GameSession, cmd GameCommand)
 	// Store tide parameters in combat context for wave processing
 	session.Combat = &CombatContext{
 		Turn:           0, // Current wave (0-indexed, will increment)
-		HuntsRemaining: numWaves,
+		WavesTotal: numWaves,
 	}
 
 	session.State = StateVillageTideWave
@@ -1695,7 +1695,7 @@ func (e *Engine) handleVillageTideWave(session *GameSession, cmd GameCommand) Ga
 		return e.handleVillageMain(session, GameCommand{Type: "init"})
 	}
 
-	numWaves := session.Combat.HuntsRemaining
+	numWaves := session.Combat.WavesTotal
 	currentWave := session.Combat.Turn
 	baseMonsterLevel := village.Level
 	monstersPerWave := 5 + (village.Level / 3)

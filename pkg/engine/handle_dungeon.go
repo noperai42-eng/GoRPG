@@ -200,11 +200,10 @@ func (e *Engine) startDungeonCombat(session *GameSession, room *models.DungeonRo
 	mob.StaminaRemaining = mob.StaminaTotal
 
 	session.Combat = &CombatContext{
-		Mob:            mob,
-		MobLoc:         -1,
-		Turn:           0,
-		IsDungeon:      true,
-		HuntsRemaining: 0,
+		Mob:       mob,
+		MobLoc:    -1,
+		Turn:      0,
+		IsDungeon: true,
 	}
 
 	session.State = StateCombat

@@ -10,7 +10,6 @@ const (
 	StateCharacterSelect    = "character_select"
 	StateHarvestSelect      = "harvest_select"
 	StateHuntLocationSelect = "hunt_location_select"
-	StateHuntCountSelect    = "hunt_count_select"
 	StateHuntTracking       = "hunt_tracking"
 
 	StateCombat            = "combat"
@@ -117,8 +116,8 @@ type CombatContext struct {
 	CombatGuards   []models.Guard
 	HasGuards      bool
 	GuardianLocationName string // non-empty = fighting a location guardian
-	HuntsRemaining       int
 	ContinuousHunt       bool // true = keep hunting until player stops
+	WavesTotal           int  // village defense wave count
 	IsAutoPlay           bool
 	AutoPlaySpeed  string
 	AutoPlayFights int

@@ -230,10 +230,6 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleHarvestSelect(session, cmd)
 	case StateHuntLocationSelect:
 		return e.handleHuntLocationSelect(session, cmd)
-	case StateHuntCountSelect:
-		// Deprecated: hunt count prompt removed; redirect to hunt location
-		session.State = StateHuntLocationSelect
-		return e.handleHuntLocationSelect(session, cmd)
 	case StateHuntTracking:
 		return e.handleHuntTracking(session, cmd)
 	case StateCombat:

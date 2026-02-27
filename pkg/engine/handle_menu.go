@@ -441,7 +441,7 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 		session.Combat = &CombatContext{
 			GuardianLocationName: actualName,
 		}
-		return e.startCombat(session, &loc, 0, guardian, 1)
+		return e.startCombat(session, &loc, 0, guardian)
 	}
 
 	loc, exists := gs.GameLocations[locName]
@@ -472,8 +472,6 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 	}
 
 	session.SelectedLocation = locName
-
-	huntCount := 1
 
 	// Check if player has Tracking skill
 	hasTracking := false
@@ -512,7 +510,6 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 		}
 
 		session.Combat = &CombatContext{
-			HuntsRemaining: huntCount,
 			ContinuousHunt: true,
 			Location:       &loc,
 		}
@@ -531,7 +528,7 @@ func (e *Engine) handleHuntLocationSelect(session *GameSession, cmd GameCommand)
 
 	// Set continuous hunt so startCombat picks it up
 	session.Combat = &CombatContext{ContinuousHunt: true}
-	return e.startCombat(session, &loc, mobLoc, mob, huntCount)
+	return e.startCombat(session, &loc, mobLoc, mob)
 }
 
 // handleHuntTracking processes the player's target selection when using the Tracking skill.
@@ -544,11 +541,6 @@ func (e *Engine) handleHuntTracking(session *GameSession, cmd GameCommand) GameR
 	if !exists {
 		session.State = StateMainMenu
 		return BuildMainMenuResponse(session)
-	}
-
-	huntsRemaining := 1
-	if session.Combat != nil {
-		huntsRemaining = session.Combat.HuntsRemaining
 	}
 
 	choice, err := strconv.Atoi(cmd.Value)
@@ -566,11 +558,11 @@ func (e *Engine) handleHuntTracking(session *GameSession, cmd GameCommand) GameR
 	mob := loc.Monsters[mobLoc]
 
 	_ = player // player is used by startCombat via session
-	return e.startCombat(session, &loc, mobLoc, mob, huntsRemaining)
+	return e.startCombat(session, &loc, mobLoc, mob)
 }
 
 // startCombat initializes a CombatContext and returns the initial combat display.
-func (e *Engine) startCombat(session *GameSession, location *models.Location, mobLoc int, mob models.Monster, huntsRemaining int) GameResponse {
+func (e *Engine) startCombat(session *GameSession, location *models.Location, mobLoc int, mob models.Monster) GameResponse {
 	player := session.Player
 	gs := session.GameState
 
@@ -596,7 +588,6 @@ func (e *Engine) startCombat(session *GameSession, location *models.Location, mo
 		Fled:                 false,
 		PlayerWon:            false,
 		IsDefending:          false,
-		HuntsRemaining:       huntsRemaining,
 		ContinuousHunt:       continuousHunt,
 		GuardianLocationName: guardianLocName,
 	}
