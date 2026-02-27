@@ -377,7 +377,7 @@
                     <p>Click a location to begin hunting. Locked locations require a guardian fight.</p>
                 </div>
                 <div class="location-grid">
-                    <template x-for="loc in allLocations" :key="loc.name">
+                    <template x-for="(loc, idx) in allLocations" :key="loc.name + '-' + idx">
                         <div class="location-card" :class="{ locked: loc.locked, 'guardian-defeated': loc.guardianDefeated }" @click="clickLocation(loc)">
                             <div class="location-card-header">
                                 <span class="location-status-icon" x-show="loc.locked" title="Locked - Guardian guards this location">&#x1F512;</span>

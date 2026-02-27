@@ -34,6 +34,22 @@ document.addEventListener('alpine:init', () => {
             // Update player state
             if (resp.state) {
                 if (resp.state.player) {
+                    // Preserve enriched location data (type, level_max) if new response only has names
+                    if (this.player) {
+                        const oldKnown = this.player.known_locations;
+                        const oldLocked = this.player.locked_locations;
+                        const newP = resp.state.player;
+                        if (oldKnown && newP.known_locations && newP.known_locations.length > 0 && !newP.known_locations[0].type) {
+                            const locMap = {};
+                            for (const l of oldKnown) if (l.type) locMap[l.name] = l;
+                            newP.known_locations = newP.known_locations.map(l => locMap[l.name] || l);
+                        }
+                        if (oldLocked && newP.locked_locations && newP.locked_locations.length > 0 && !newP.locked_locations[0].type) {
+                            const locMap = {};
+                            for (const l of oldLocked) if (l.type) locMap[l.name] = l;
+                            newP.locked_locations = newP.locked_locations.map(l => locMap[l.name] || l);
+                        }
+                    }
                     this.player = resp.state.player;
                 }
                 if (resp.state.combat) {
