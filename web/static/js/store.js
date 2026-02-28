@@ -2,7 +2,7 @@
 document.addEventListener('alpine:init', () => {
     Alpine.store('game', {
         screen: 'auth',          // 'auth' | 'characters' | 'game'
-        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'town' | 'quests'
+        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'town' | 'quests' | 'stats'
         player: null,            // PlayerState from server
         combat: null,            // CombatView from server
         village: null,           // VillageView from server
@@ -21,6 +21,8 @@ document.addEventListener('alpine:init', () => {
         autoHunting: false,      // true when auto-hunting through multiple fights
         _autoHuntTimer: null,    // timer ID for auto-hunt delay
         version: '',             // server version string
+        leaderboard: null,       // leaderboard entries from API
+        leaderboardCategory: 'kills', // current leaderboard category
 
         get inCombat() { return this.combat !== null; },
 
@@ -289,6 +291,19 @@ document.addEventListener('alpine:init', () => {
         toggleGroup(groupId) {
             const group = this.recentMessages.find(g => g.id === groupId);
             if (group) group.collapsed = !group.collapsed;
+        },
+
+        // Fetch leaderboard data from REST API
+        fetchLeaderboard(category) {
+            this.leaderboardCategory = category || this.leaderboardCategory;
+            fetch('/api/leaderboard?category=' + encodeURIComponent(this.leaderboardCategory) + '&limit=20', {
+                headers: Auth.getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.leaderboard = data.entries || [];
+            })
+            .catch(() => { this.leaderboard = []; });
         },
 
         // Pick the most interesting message from a group as its header

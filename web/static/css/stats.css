@@ -1,0 +1,130 @@
+/* ===== Stats & Leaderboard Screen ===== */
+.stats-header {
+    margin-bottom: 1rem;
+}
+
+.stats-header h2 {
+    font-size: 1.2rem;
+}
+
+.stats-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+@media (max-width: 600px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Leaderboard category filter buttons */
+.leaderboard-categories {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.leaderboard-cat-btn {
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all var(--transition-fast);
+}
+
+.leaderboard-cat-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.leaderboard-cat-btn.active {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Leaderboard table */
+.leaderboard-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.leaderboard-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    transition: background var(--transition-fast);
+}
+
+.leaderboard-row:hover {
+    background: var(--bg-hover);
+}
+
+.leaderboard-row.leaderboard-self {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.leaderboard-rank {
+    font-weight: 700;
+    min-width: 2rem;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.leaderboard-rank.rank-gold {
+    color: #ffd700;
+}
+
+.leaderboard-rank.rank-silver {
+    color: #c0c0c0;
+}
+
+.leaderboard-rank.rank-bronze {
+    color: #cd7f32;
+}
+
+.leaderboard-name {
+    flex: 1;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.leaderboard-level {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    min-width: 3.5rem;
+}
+
+.leaderboard-score {
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 3rem;
+    text-align: right;
+}
+
+.leaderboard-empty {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}

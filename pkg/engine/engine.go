@@ -445,6 +445,11 @@ func (e *Engine) saveSessionToDB(session *GameSession) error {
 		}
 	}
 
+	// Update leaderboard.
+	if session.Player != nil {
+		e.store.UpdateLeaderboard(session.AccountID, session.Player.Name, session.Player.Stats, session.Player.Level)
+	}
+
 	// Save villages.
 	if session.GameState.Villages != nil && session.Player != nil {
 		for vName, village := range session.GameState.Villages {

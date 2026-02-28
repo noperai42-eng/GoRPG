@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="css/village.css?v=6">
     <link rel="stylesheet" href="css/quests.css?v=6">
     <link rel="stylesheet" href="css/town.css?v=6">
+    <link rel="stylesheet" href="css/stats.css?v=6">
 </head>
 <body x-data x-cloak>
 <div id="app">
@@ -736,6 +737,85 @@
                 </div>
             </div>
 
+            <!-- ===== STATS TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'stats' && !$store.game.inCombat" x-data="statsScreen()">
+                <div class="stats-header">
+                    <h2>Stats</h2>
+                </div>
+
+                <!-- Sub-tabs -->
+                <div class="sub-tabs">
+                    <button class="sub-tab" :class="{ active: subTab === 'mystats' }" @click="subTab = 'mystats'">My Stats</button>
+                    <button class="sub-tab" :class="{ active: subTab === 'leaderboard' }" @click="subTab = 'leaderboard'">Leaderboard</button>
+                </div>
+
+                <!-- My Stats -->
+                <div x-show="subTab === 'mystats'" class="stats-content">
+                    <template x-if="stats">
+                        <div>
+                            <!-- Combat Stats -->
+                            <div class="stats-grid">
+                                <div class="card">
+                                    <div class="section-header">Combat</div>
+                                    <div class="stat-row"><span class="stat-label">Total Kills</span><span class="stat-value" x-text="stats.total_kills"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Total Deaths</span><span class="stat-value" x-text="stats.total_deaths"></span></div>
+                                    <div class="stat-row"><span class="stat-label">K/D Ratio</span><span class="stat-value" x-text="kdRatio()"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Total XP Earned</span><span class="stat-value" x-text="stats.total_xp_earned"></span></div>
+                                </div>
+                                <div class="card">
+                                    <div class="section-header">Combo</div>
+                                    <div class="stat-row"><span class="stat-label">Current Combo</span><span class="stat-value" x-text="stats.current_combo"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Highest Combo</span><span class="stat-value" x-text="stats.highest_combo"></span></div>
+                                </div>
+                            </div>
+
+                            <div class="stats-grid" style="margin-top: 0.75rem;">
+                                <div class="card">
+                                    <div class="section-header">PvP</div>
+                                    <div class="stat-row"><span class="stat-label">Wins</span><span class="stat-value" x-text="stats.pvp_wins"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Losses</span><span class="stat-value" x-text="stats.pvp_losses"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" x-text="pvpWinRate()"></span></div>
+                                </div>
+                                <div class="card">
+                                    <div class="section-header">Progression</div>
+                                    <div class="stat-row"><span class="stat-label">Bosses Killed</span><span class="stat-value" x-text="stats.bosses_killed"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Dungeons Cleared</span><span class="stat-value" x-text="stats.dungeons_cleared"></span></div>
+                                </div>
+                            </div>
+
+                            <!-- Kills by Rarity -->
+                            <div class="card" style="margin-top: 0.75rem;" x-show="rarityEntries().length > 0">
+                                <div class="section-header">Kills by Rarity</div>
+                                <template x-for="[rarity, count] in rarityEntries()" :key="rarity">
+                                    <div class="stat-row"><span class="stat-label" x-text="rarity"></span><span class="stat-value" x-text="count"></span></div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="!stats" style="text-align: center; padding: 2rem; color: var(--text-muted);">No stats available yet. Go fight some monsters!</div>
+                </div>
+
+                <!-- Leaderboard -->
+                <div x-show="subTab === 'leaderboard'" class="stats-content">
+                    <div class="leaderboard-categories">
+                        <template x-for="cat in ['kills', 'level', 'bosses', 'pvp_wins', 'combo']" :key="cat">
+                            <button class="leaderboard-cat-btn" :class="{ active: currentCategory === cat }" @click="switchCategory(cat)" x-text="categoryLabel(cat)"></button>
+                        </template>
+                    </div>
+                    <div class="leaderboard-table">
+                        <template x-for="(entry, idx) in leaderboardEntries" :key="entry.character_name">
+                            <div class="leaderboard-row" :class="{ 'leaderboard-self': isSelf(entry) }">
+                                <span class="leaderboard-rank" :class="rankClass(idx)" x-text="'#' + (idx + 1)"></span>
+                                <span class="leaderboard-name" x-text="entry.character_name"></span>
+                                <span class="leaderboard-level" x-text="'Lv ' + entry.player_level"></span>
+                                <span class="leaderboard-score" x-text="categoryValue(entry, currentCategory)"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="leaderboard-empty" x-show="leaderboardEntries.length === 0">No leaderboard entries yet.</div>
+                </div>
+            </div>
+
             <!-- ===== COMBAT OVERLAY ===== -->
             <div class="combat-overlay" x-show="$store.game.inCombat" x-data="combatScreen()" x-effect="if ($store.game.inCombat) scrollLog()">
                 <template x-if="c">
@@ -990,5 +1070,6 @@
 <script src="js/screens/village.js?v=6"></script>
 <script src="js/screens/quests.js?v=6"></script>
 <script src="js/screens/town.js?v=6"></script>
+<script src="js/screens/stats.js?v=6"></script>
 </body>
 </html>

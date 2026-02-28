@@ -7,6 +7,7 @@ function navbar() {
             { id: 'village', label: 'Village', icon: '' },
             { id: 'town', label: 'Town', icon: '' },
             { id: 'quests', label: 'Quests', icon: '' },
+            { id: 'stats', label: 'Stats', icon: '' },
         ],
 
         switchTab(tabId) {
