@@ -864,6 +864,15 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	combat.PlayerWon = true
 
 	xpGained := int(float64(scaledXP(player.Level, mob.Level)) * game.RarityXPMult(mob.Rarity))
+	// Cap XP per fight to 1/10th of what's needed to level up, so players
+	// must fight at least 10 monsters to level even against very high-level foes.
+	xpCap := game.PlayerExpToLevel(player.Level) / 10
+	if xpCap < 1 {
+		xpCap = 1
+	}
+	if xpGained > xpCap {
+		xpGained = xpCap
+	}
 	player.Experience += xpGained
 
 	rarityDisplay := game.RarityDisplayName(mob.Rarity)
