@@ -700,6 +700,31 @@ func (e *Engine) Broadcast(excludeSessionID string, resp GameResponse) {
 	}
 }
 
+// RenameSessionCharacter renames a character within a session's game state.
+// It re-keys the CharactersMap entry and updates the character's Name and VillageName.
+func (e *Engine) RenameSessionCharacter(sessionID, oldName, newName string) error {
+	e.mu.RLock()
+	session, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	char, exists := session.GameState.CharactersMap[oldName]
+	if !exists {
+		return fmt.Errorf("character %q not found in session", oldName)
+	}
+
+	char.Name = newName
+	char.VillageName = newName + "'s Village"
+
+	delete(session.GameState.CharactersMap, oldName)
+	session.GameState.CharactersMap[newName] = char
+
+	return nil
+}
+
 // RemoveSession removes a session from the engine.
 func (e *Engine) RemoveSession(sessionID string) {
 	e.mu.Lock()

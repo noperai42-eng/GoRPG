@@ -20,6 +20,16 @@ type CreateAgentRequest struct {
 	MaxDelay int    `json:"max_delay_ms"`
 }
 
+// DefaultAgents is the roster of bot agents spawned automatically on server boot.
+var DefaultAgents = []CreateAgentRequest{
+	{Name: "Grimjaw", Strategy: "hunter", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Thornveil", Strategy: "hunter", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Petalfoot", Strategy: "harvester", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Shadowdelve", Strategy: "dungeon_crawler", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Ironclash", Strategy: "arena_grinder", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Wanderlux", Strategy: "completionist", MinDelay: 500, MaxDelay: 2000},
+}
+
 // Manager handles the lifecycle of AI agents.
 type Manager struct {
 	agents    map[string]*Agent
@@ -104,6 +114,12 @@ func (m *Manager) CreateAgent(req CreateAgentRequest) (*AgentInfo, error) {
 	}
 
 	log.Printf("[AgentManager] Created session: %s for agent %s", sessionID, req.Name)
+
+	// Rename the default "Temp" character to the agent's name.
+	if err := m.engine.RenameSessionCharacter(sessionID, "Temp", req.Name); err != nil {
+		log.Printf("[AgentManager] Failed to rename character for agent %s: %v", req.Name, err)
+		// Non-fatal: agent will still work with "Temp" name.
+	}
 
 	agent := &Agent{
 		ID:        agentID,
@@ -194,4 +210,69 @@ func (m *Manager) StopAll() {
 	}
 
 	log.Printf("[AgentManager] Stopped all %d agents", len(agentsCopy))
+}
+
+// SpawnDefaultAgents creates all default bot agents from the roster.
+// It should be called as a goroutine during server startup.
+func (m *Manager) SpawnDefaultAgents() {
+	// Small delay to let the server finish initializing.
+	time.Sleep(5 * time.Second)
+
+	log.Printf("[AgentManager] Spawning default agents...")
+
+	for _, req := range DefaultAgents {
+		info, err := m.CreateAgent(req)
+		if err != nil {
+			log.Printf("[AgentManager] Failed to spawn default agent %s: %v", req.Name, err)
+			continue
+		}
+		log.Printf("[AgentManager] Spawned default agent %s (ID: %s, strategy: %s)", info.Name, info.ID, info.Strategy)
+	}
+
+	log.Printf("[AgentManager] Default agent spawn complete")
+
+	// Start the crash recovery monitor.
+	go m.monitorAgents()
+}
+
+// monitorAgents periodically checks for crashed agents and respawns them.
+func (m *Manager) monitorAgents() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		m.mu.RLock()
+		var crashed []CreateAgentRequest
+		var crashedIDs []string
+		for id, a := range m.agents {
+			a.mu.RLock()
+			status := a.Status
+			a.mu.RUnlock()
+			if status == AgentStatusError {
+				crashed = append(crashed, CreateAgentRequest{
+					Name:     a.Name,
+					Strategy: a.Strategy.Name(),
+					MinDelay: int(a.MinDelay / time.Millisecond),
+					MaxDelay: int(a.MaxDelay / time.Millisecond),
+				})
+				crashedIDs = append(crashedIDs, id)
+			}
+		}
+		m.mu.RUnlock()
+
+		for i, req := range crashed {
+			log.Printf("[AgentManager] Recovering crashed agent %s (ID: %s)", req.Name, crashedIDs[i])
+			// StopAgent cleans up the old session and removes from map.
+			if err := m.StopAgent(crashedIDs[i]); err != nil {
+				log.Printf("[AgentManager] Failed to stop crashed agent %s: %v", req.Name, err)
+			}
+			// Respawn with the same config.
+			info, err := m.CreateAgent(req)
+			if err != nil {
+				log.Printf("[AgentManager] Failed to respawn agent %s: %v", req.Name, err)
+				continue
+			}
+			log.Printf("[AgentManager] Respawned agent %s (new ID: %s)", info.Name, info.ID)
+		}
+	}
 }

@@ -132,6 +132,9 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		}
 	}()
 
+	// Auto-spawn default AI agents after a brief startup delay.
+	go s.agentMgr.SpawnDefaultAgents()
+
 	return s
 }
 

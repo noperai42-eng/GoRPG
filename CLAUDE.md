@@ -6,10 +6,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a text-based RPG/roguelike game written in Go featuring an advanced combat system with skills, magic, status effects, and elemental damage types. The game features character creation, location exploration, tactical turn-based combat with monsters, resource harvesting, and persistent save/load functionality through JSON serialization.
 
+## Pre-Commit / Pre-Push Checklist
+
+**MANDATORY: Always build and test before committing or pushing.**
+
+```bash
+# 1. Build all packages — must be clean (zero errors, zero warnings)
+go build ./...
+
+# 2. Run server tests (the primary test suite)
+go test ./pkg/server/ -count=1
+
+# 3. Run all pkg tests (engine combat test is flaky — see Known Flaky Tests)
+go test ./pkg/... -count=1
+```
+
+Do NOT commit or push if the build fails or tests fail (except known flaky tests).
+
+### Known Frontend Errors to Watch For
+
+After any change to Go response structs, engine handlers, or JSON payloads, check for these JavaScript runtime errors that indicate null/undefined data being sent to the frontend:
+
+- **`TypeError: undefined is not an object (evaluating 'O.after')`** — A response object is missing an expected field. Check that all handler responses include the required `State` / nested fields.
+- **`TypeError: null is not an object (evaluating 'p.resources')`** — Player state is null or missing `resources`. Ensure `MakePlayerState()` and related builders always populate `Resources`/`ResourceStorageMap`, especially for new characters and bot agents.
+
+When adding new engine features or modifying response shapes, verify the frontend doesn't crash by testing in a browser after server restart.
+
+### Known Flaky Tests
+
+- `TestCombatFlow` (pkg/engine) and `TestFullGameFlow` (test/) — occasionally fail with "combat did not end after 100 turns" due to RNG. Safe to ignore if all other tests pass.
+
 ## Commands
 
 ### Building
 ```bash
+# Web server (primary)
+go build ./...
+
+# CLI client (legacy)
 cd fight-cli
 go build -o fight-cli fight-cli.go
 ```
@@ -27,7 +61,15 @@ go run fight-cli.go
 ```
 
 ### Testing
-No formal test suite. To test, run the application and interact with the menu system. Recommended test flow:
+```bash
+# Primary test suite
+go test ./pkg/server/ -count=1
+
+# Full test suite
+go test ./pkg/... -count=1
+```
+
+Manual test flow (legacy CLI):
 1. Create new character (option 0)
 2. Go hunting at Training Hall (option 3)
 3. Test all combat actions (Attack, Defend, Use Item, Use Skill, Flee)
