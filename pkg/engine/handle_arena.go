@@ -13,6 +13,18 @@ func (e *Engine) handleArenaMain(session *GameSession, cmd GameCommand) GameResp
 	player := session.Player
 	msgs := []GameMessage{}
 
+	// Handle back to main menu
+	if cmd.Value == "back" {
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	// Handle challenge
+	if cmd.Value == "1" {
+		session.State = StateArenaChallenge
+		return e.handleArenaChallenge(session, GameCommand{Type: "init"})
+	}
+
 	if e.store == nil {
 		msgs = append(msgs, Msg("Arena requires a database connection.", "error"))
 		session.State = StateMainMenu
@@ -52,6 +64,8 @@ func (e *Engine) handleArenaMain(session *GameSession, cmd GameCommand) GameResp
 			LastReset:     today,
 		}
 		e.store.UpsertArenaEntry(*entry)
+		// Persist character data so opponents can load it for fights
+		e.saveSession(session)
 	}
 
 	// Sync stats

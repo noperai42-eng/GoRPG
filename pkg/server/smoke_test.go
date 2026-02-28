@@ -76,6 +76,142 @@ func requireScreen(t *testing.T, resp gameResponse, expected, context string) {
 	}
 }
 
+// readGameResponseSkipBroadcasts reads WS messages, skipping any broadcast-type pushes,
+// and returns the first non-broadcast game response.
+func readGameResponseSkipBroadcasts(t *testing.T, ws *websocket.Conn) gameResponse {
+	t.Helper()
+	for {
+		resp := readGameResponse(t, ws)
+		if resp.Type == "broadcast" {
+			t.Logf("  (skipped broadcast: %v)", resp.Messages)
+			continue
+		}
+		return resp
+	}
+}
+
+func TestArenaFlow(t *testing.T) {
+	_, ts := setupTestServer(t)
+
+	// Register two separate accounts.
+	token1 := registerAndLogin(t, ts, "arena_p1", "arenapass1")
+	token2 := registerAndLogin(t, ts, "arena_p2", "arenapass2")
+
+	// Connect player 1.
+	ws1 := connectWS(t, ts, token1)
+	defer ws1.Close()
+
+	initResp1 := readGameResponse(t, ws1)
+	requireScreen(t, initResp1, "main_menu", "p1 init")
+	t.Logf("P1 init OK: screen=%s", screenOf(initResp1))
+
+	// Player 1 enters arena (option "14") → auto-registers with 1000 rating.
+	sendCommand(t, ws1, "select", "14")
+	resp := readGameResponseSkipBroadcasts(t, ws1)
+	requireScreen(t, resp, "arena_main", "p1 enter arena")
+	t.Log("P1 entered arena, auto-registered")
+
+	// Player 1 goes back to main menu.
+	sendCommand(t, ws1, "select", "back")
+	resp = readGameResponseSkipBroadcasts(t, ws1)
+	requireScreen(t, resp, "main_menu", "p1 back from arena")
+
+	// Connect player 2 (player 1 may get a login broadcast — that's fine, we skip it).
+	ws2 := connectWS(t, ts, token2)
+	defer ws2.Close()
+
+	initResp2 := readGameResponse(t, ws2)
+	requireScreen(t, initResp2, "main_menu", "p2 init")
+	t.Logf("P2 init OK: screen=%s", screenOf(initResp2))
+
+	// Player 2 enters arena → auto-registers.
+	sendCommand(t, ws2, "select", "14")
+	resp = readGameResponseSkipBroadcasts(t, ws2)
+	requireScreen(t, resp, "arena_main", "p2 enter arena")
+	t.Log("P2 entered arena, auto-registered")
+
+	// Player 2 challenges (option "1") → should see player 1 in the list.
+	sendCommand(t, ws2, "select", "1")
+	resp = readGameResponseSkipBroadcasts(t, ws2)
+	requireScreen(t, resp, "arena_challenge", "p2 challenge list")
+
+	if len(resp.Options) < 2 { // At least 1 opponent + "back"
+		t.Fatalf("expected at least 1 opponent + back, got options: %v", optionKeys(resp))
+	}
+	t.Logf("P2 sees opponents: %v", optionKeys(resp))
+
+	// Select the first opponent (should be player 1).
+	sendCommand(t, ws2, "select", "1")
+	resp = readGameResponseSkipBroadcasts(t, ws2)
+	requireScreen(t, resp, "arena_confirm", "p2 confirm challenge")
+
+	// Confirm the fight.
+	sendCommand(t, ws2, "select", "y")
+	resp = readGameResponseSkipBroadcasts(t, ws2)
+	requireScreen(t, resp, "combat", "p2 arena combat start")
+	t.Log("Arena combat started")
+
+	// Fight until combat ends (attack repeatedly with option "1").
+	arenaResult := ""
+	for i := 0; i < 100; i++ {
+		screen := screenOf(resp)
+		if screen == "arena_main" {
+			// Combat ended, we're back at arena screen.
+			arenaResult = "done"
+			break
+		}
+		if screen == "combat_skill_reward" {
+			// Handle skill reward.
+			if len(resp.Options) > 0 {
+				sendCommand(t, ws2, "select", resp.Options[0].Key)
+				resp = readGameResponseSkipBroadcasts(t, ws2)
+			}
+			continue
+		}
+		if screen != "combat" && screen != "combat_guard_prompt" {
+			t.Fatalf("unexpected screen during arena combat: %s (options: %v)", screen, optionKeys(resp))
+		}
+		// Attack.
+		sendCommand(t, ws2, "select", "1")
+		resp = readGameResponseSkipBroadcasts(t, ws2)
+	}
+
+	if arenaResult != "done" {
+		t.Fatalf("arena combat did not end after 100 turns, last screen: %s", screenOf(resp))
+	}
+
+	// Verify we got victory or defeat messages.
+	hasResult := false
+	for _, msg := range resp.Messages {
+		if strings.Contains(msg.Text, "ARENA VICTORY") || strings.Contains(msg.Text, "ARENA DEFEAT") {
+			hasResult = true
+			t.Logf("Arena result: %s", msg.Text)
+			break
+		}
+	}
+	if !hasResult {
+		t.Error("arena combat ended without VICTORY/DEFEAT message")
+		for _, msg := range resp.Messages {
+			t.Logf("  [%s] %s", msg.Category, msg.Text)
+		}
+	}
+
+	// Verify rating change message is present.
+	hasRating := false
+	for _, msg := range resp.Messages {
+		if strings.Contains(msg.Text, "Rating:") {
+			hasRating = true
+			t.Logf("Rating update: %s", msg.Text)
+			break
+		}
+	}
+	if !hasRating {
+		t.Error("expected rating change message after arena fight")
+	}
+
+	t.Log("ArenaFlow OK")
+}
+
 func TestSmoke(t *testing.T) {
 	_, ts := setupTestServer(t)
 	token := registerAndLogin(t, ts, "smokeuser", "smokepass1")
