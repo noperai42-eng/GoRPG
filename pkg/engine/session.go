@@ -95,6 +95,7 @@ const (
 	// Dungeon states
 	StateDungeonSelect    = "dungeon_select"
 	StateDungeonFloorMap  = "dungeon_floor_map"
+	StateDungeonGridMove  = "dungeon_grid_move"
 	StateDungeonRoom      = "dungeon_room"
 	StateDungeonTreasure  = "dungeon_treasure"
 	StateDungeonTrap      = "dungeon_trap"

@@ -26,8 +26,8 @@ func (e *Engine) handleDungeonSelect(session *GameSession, cmd GameCommand) Game
 
 	// Check if player already has an active dungeon
 	if player.ActiveDungeon != nil {
-		session.State = StateDungeonFloorMap
-		return e.handleDungeonFloorMap(session, GameCommand{Type: "init"})
+		session.State = StateDungeonGridMove
+		return e.showDungeonGrid(session, nil)
 	}
 
 	idx, err := strconv.Atoi(cmd.Value)
@@ -64,20 +64,11 @@ func (e *Engine) handleDungeonSelect(session *GameSession, cmd GameCommand) Game
 		Msg(fmt.Sprintf("A %d-floor dungeon awaits. Prepare yourself!", len(dungeon.Floors)), "narrative"),
 	}
 
-	session.State = StateDungeonFloorMap
-	return GameResponse{
-		Type:     "menu",
-		Messages: msgs,
-		State: &StateData{
-			Screen:  "dungeon_floor_map",
-			Player:  MakePlayerState(player),
-			Dungeon: makeDungeonView(player.ActiveDungeon),
-		},
-		Options: dungeonFloorOptions(player.ActiveDungeon),
-	}
+	session.State = StateDungeonGridMove
+	return e.showDungeonGrid(session, msgs)
 }
 
-// handleDungeonFloorMap shows the current floor and room options.
+// handleDungeonFloorMap handles the floor map state (for room result "proceed" actions).
 func (e *Engine) handleDungeonFloorMap(session *GameSession, cmd GameCommand) GameResponse {
 	player := session.Player
 	dungeon := player.ActiveDungeon
@@ -105,47 +96,104 @@ func (e *Engine) handleDungeonFloorMap(session *GameSession, cmd GameCommand) Ga
 			// Dungeon complete!
 			return e.completeDungeon(session)
 		}
+		// Ensure new floor has grid
+		e.ensureFloorGrid(dungeon)
+		session.State = StateDungeonGridMove
+		msgs := []GameMessage{
+			Msg(fmt.Sprintf("Descending to floor %d...", dungeon.Floors[dungeon.CurrentFloor].FloorNumber), "narrative"),
+		}
+		return e.showDungeonGrid(session, msgs)
 	}
 
-	floor := &dungeon.Floors[dungeon.CurrentFloor]
-
-	if cmd.Value == "proceed" || cmd.Value == "init" || cmd.Value == "next" {
-		// Show current room
-		return e.enterDungeonRoom(session)
+	// "proceed" after room completion — return to grid movement
+	if cmd.Value == "proceed" || cmd.Value == "init" {
+		session.State = StateDungeonGridMove
+		return e.showDungeonGrid(session, nil)
 	}
 
-	// Default: show floor map
-	return GameResponse{
-		Type:     "menu",
-		Messages: []GameMessage{Msg(fmt.Sprintf("Floor %d of %s", floor.FloorNumber, dungeon.Name), "system")},
-		State: &StateData{
-			Screen:  "dungeon_floor_map",
-			Player:  MakePlayerState(player),
-			Dungeon: makeDungeonView(dungeon),
-		},
-		Options: dungeonFloorOptions(dungeon),
-	}
+	// Default: show grid map
+	session.State = StateDungeonGridMove
+	return e.showDungeonGrid(session, nil)
 }
 
-// enterDungeonRoom processes the current room on the current floor.
-func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
+// handleDungeonMove processes directional movement on the dungeon grid.
+func (e *Engine) handleDungeonMove(session *GameSession, cmd GameCommand) GameResponse {
 	player := session.Player
 	dungeon := player.ActiveDungeon
-	floor := &dungeon.Floors[dungeon.CurrentFloor]
-	room := &floor.Rooms[floor.CurrentRoom]
 
-	if room.Cleared {
-		// Advance to next room
-		floor.CurrentRoom++
-		if floor.CurrentRoom >= len(floor.Rooms) {
-			// Floor cleared
-			floor.Cleared = true
-			msgs := []GameMessage{
-				Msg(fmt.Sprintf("Floor %d cleared!", floor.FloorNumber), "narrative"),
+	if dungeon == nil {
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	if cmd.Value == "0" || cmd.Value == "leave" {
+		player.ActiveDungeon = nil
+		session.State = StateMainMenu
+		resp := BuildMainMenuResponse(session)
+		resp.Messages = append([]GameMessage{
+			Msg("You leave the dungeon.", "narrative"),
+		}, resp.Messages...)
+		return resp
+	}
+
+	e.ensureFloorGrid(dungeon)
+	floor := &dungeon.Floors[dungeon.CurrentFloor]
+
+	// Calculate target position from direction
+	dx, dy := 0, 0
+	switch cmd.Value {
+	case "n":
+		dy = -1
+	case "s":
+		dy = 1
+	case "w":
+		dx = -1
+	case "e":
+		dx = 1
+	default:
+		// Unknown command, just show grid
+		return e.showDungeonGrid(session, nil)
+	}
+
+	targetX := floor.PlayerPos.X + dx
+	targetY := floor.PlayerPos.Y + dy
+
+	if !game.CanMoveOnGrid(floor, targetX, targetY) {
+		msgs := []GameMessage{Msg("You can't move that way.", "system")}
+		return e.showDungeonGrid(session, msgs)
+	}
+
+	// Move player
+	floor.PlayerPos.X = targetX
+	floor.PlayerPos.Y = targetY
+
+	// Reveal tiles within 2-tile radius
+	game.RevealRadius(floor, targetX, targetY, 2)
+
+	tile := floor.Grid[targetY][targetX]
+	msgs := []GameMessage{}
+
+	// Check if player stepped on exit tile
+	if tile.Type == "exit" {
+		// Check if enough rooms are cleared to use exit
+		clearedCount := 0
+		for _, room := range floor.Rooms {
+			if room.Cleared {
+				clearedCount++
 			}
+		}
+		// Need to clear at least half the rooms (including boss) to descend
+		requiredClears := len(floor.Rooms) / 2
+		if requiredClears < 1 {
+			requiredClears = 1
+		}
+
+		if clearedCount >= requiredClears {
+			floor.Cleared = true
 			if dungeon.CurrentFloor+1 >= len(dungeon.Floors) {
 				return e.completeDungeon(session)
 			}
+			msgs = append(msgs, Msg(fmt.Sprintf("Floor %d cleared! You found the stairs down.", floor.FloorNumber), "narrative"))
 			session.State = StateDungeonFloorMap
 			return GameResponse{
 				Type:     "menu",
@@ -161,7 +209,70 @@ func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
 				},
 			}
 		}
-		room = &floor.Rooms[floor.CurrentRoom]
+		msgs = append(msgs, Msg(fmt.Sprintf("You found the exit, but need to clear more rooms first (%d/%d).", clearedCount, requiredClears), "system"))
+		return e.showDungeonGrid(session, msgs)
+	}
+
+	// Check if target tile is an uncleared room
+	if tile.RoomIdx >= 0 && tile.RoomIdx < len(floor.Rooms) {
+		room := &floor.Rooms[tile.RoomIdx]
+		floor.CurrentRoom = tile.RoomIdx
+		if !room.Cleared {
+			// Trigger room handler
+			return e.enterDungeonRoom(session)
+		}
+		// Room already cleared, just moved through
+		msgs = append(msgs, Msg("This room has already been cleared.", "system"))
+	}
+
+	return e.showDungeonGrid(session, msgs)
+}
+
+// showDungeonGrid builds the grid view response with directional movement options.
+func (e *Engine) showDungeonGrid(session *GameSession, msgs []GameMessage) GameResponse {
+	player := session.Player
+	dungeon := player.ActiveDungeon
+
+	e.ensureFloorGrid(dungeon)
+	floor := &dungeon.Floors[dungeon.CurrentFloor]
+
+	if msgs == nil {
+		msgs = []GameMessage{}
+	}
+	msgs = append(msgs, Msg(fmt.Sprintf("Floor %d of %s", floor.FloorNumber, dungeon.Name), "system"))
+
+	session.State = StateDungeonGridMove
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State: &StateData{
+			Screen:  "dungeon_floor_map",
+			Player:  MakePlayerState(player),
+			Dungeon: makeDungeonView(dungeon),
+		},
+		Options: dungeonMoveOptions(floor),
+	}
+}
+
+// ensureFloorGrid regenerates the grid if it's nil (backward compat with old saves).
+func (e *Engine) ensureFloorGrid(dungeon *models.Dungeon) {
+	floor := &dungeon.Floors[dungeon.CurrentFloor]
+	if floor.Grid == nil {
+		game.RegenerateFloorGrid(floor, dungeon.Seed, dungeon.CurrentFloor)
+	}
+}
+
+// enterDungeonRoom processes the current room on the current floor.
+func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
+	player := session.Player
+	dungeon := player.ActiveDungeon
+	floor := &dungeon.Floors[dungeon.CurrentFloor]
+	room := &floor.Rooms[floor.CurrentRoom]
+
+	if room.Cleared {
+		// Room already cleared, return to grid
+		session.State = StateDungeonGridMove
+		return e.showDungeonGrid(session, []GameMessage{Msg("This room has already been cleared.", "system")})
 	}
 
 	switch room.Type {
@@ -177,7 +288,8 @@ func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
 		return e.handleDungeonMerchant(session, room)
 	default:
 		room.Cleared = true
-		return e.enterDungeonRoom(session)
+		session.State = StateDungeonGridMove
+		return e.showDungeonGrid(session, nil)
 	}
 }
 
@@ -188,7 +300,8 @@ func (e *Engine) startDungeonCombat(session *GameSession, room *models.DungeonRo
 
 	if room.Monster == nil {
 		room.Cleared = true
-		return e.enterDungeonRoom(session)
+		session.State = StateDungeonGridMove
+		return e.showDungeonGrid(session, nil)
 	}
 
 	mob := *room.Monster
@@ -471,6 +584,12 @@ func makeDungeonView(dungeon *models.Dungeon) *DungeonView {
 			TotalRooms:  len(floor.Rooms),
 			Cleared:     floor.Cleared,
 			BossFloor:   floor.BossFloor,
+			GridW:       floor.GridW,
+			GridH:       floor.GridH,
+			PlayerX:     floor.PlayerPos.X,
+			PlayerY:     floor.PlayerPos.Y,
+			ExitX:       floor.ExitPos.X,
+			ExitY:       floor.ExitPos.Y,
 		}
 		fv.Rooms = make([]DungeonRoomView, len(floor.Rooms))
 		for i, room := range floor.Rooms {
@@ -480,16 +599,62 @@ func makeDungeonView(dungeon *models.Dungeon) *DungeonView {
 				RoomIndex: i,
 			}
 		}
+
+		// Build grid view (fog of war: unexplored tiles shown as "fog")
+		if floor.Grid != nil {
+			fv.Grid = make([][]DungeonTileView, floor.GridH)
+			for y := 0; y < floor.GridH; y++ {
+				fv.Grid[y] = make([]DungeonTileView, floor.GridW)
+				for x := 0; x < floor.GridW; x++ {
+					tile := floor.Grid[y][x]
+					if tile.Explored {
+						tv := DungeonTileView{
+							Type:     tile.Type,
+							RoomIdx:  tile.RoomIdx,
+							Explored: true,
+						}
+						// Add room info for explored room tiles
+						if tile.RoomIdx >= 0 && tile.RoomIdx < len(floor.Rooms) {
+							room := floor.Rooms[tile.RoomIdx]
+							tv.RoomType = room.Type
+							tv.Cleared = room.Cleared
+						}
+						fv.Grid[y][x] = tv
+					} else {
+						fv.Grid[y][x] = DungeonTileView{
+							Type:     "fog",
+							RoomIdx:  -1,
+							Explored: false,
+						}
+					}
+				}
+			}
+		}
+
 		dv.Floor = fv
 	}
 
 	return dv
 }
 
-// dungeonFloorOptions returns standard options for the dungeon floor map.
-func dungeonFloorOptions(dungeon *models.Dungeon) []MenuOption {
-	return []MenuOption{
-		Opt("proceed", "Enter next room"),
-		Opt("0", "Leave dungeon"),
+// dungeonMoveOptions returns directional movement options based on walkable neighbors.
+func dungeonMoveOptions(floor *models.DungeonFloor) []MenuOption {
+	opts := []MenuOption{}
+	pos := floor.PlayerPos
+
+	if game.CanMoveOnGrid(floor, pos.X, pos.Y-1) {
+		opts = append(opts, Opt("n", "North"))
 	}
+	if game.CanMoveOnGrid(floor, pos.X, pos.Y+1) {
+		opts = append(opts, Opt("s", "South"))
+	}
+	if game.CanMoveOnGrid(floor, pos.X-1, pos.Y) {
+		opts = append(opts, Opt("w", "West"))
+	}
+	if game.CanMoveOnGrid(floor, pos.X+1, pos.Y) {
+		opts = append(opts, Opt("e", "East"))
+	}
+	opts = append(opts, Opt("0", "Leave Dungeon"))
+
+	return opts
 }

@@ -311,11 +311,11 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 		combat.Turn-- // undo increment, autoResolveCombat manages its own turns
 		return e.autoResolveCombat(session, msgs)
 
-	case "7": // Stop Hunting - end the hunt chain and return to main menu
+	case "7": // Return to Hub - end the hunt chain and return to main menu
 		combat.Turn--
 		combat.ContinuousHunt = false
 		e.saveSession(session)
-		msgs = append(msgs, Msg("You stop hunting and return home.", "system"))
+		msgs = append(msgs, Msg("You return to the hub.", "system"))
 		session.State = StateMainMenu
 		return GameResponse{
 			Type:     "narrative",
@@ -1544,7 +1544,7 @@ func combatActionOptions() []MenuOption {
 		Opt("4", "Use Skill"),
 		Opt("5", "Flee"),
 		Opt("6", "Auto Fight"),
-		Opt("7", "Stop Hunting"),
+		Opt("7", "Return to Hub"),
 	}
 }
 

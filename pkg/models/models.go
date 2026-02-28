@@ -365,6 +365,19 @@ type CharacterStats struct {
 	DungeonsCleared int            `json:"dungeons_cleared"`
 }
 
+// GridPosition represents a 2D coordinate on the dungeon grid.
+type GridPosition struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+// DungeonTile represents a single tile on the dungeon grid.
+type DungeonTile struct {
+	Type     string `json:"type"`      // "room", "corridor", "wall", "entrance", "exit"
+	RoomIdx  int    `json:"room_idx"`  // index into DungeonFloor.Rooms, -1 if not a room
+	Explored bool   `json:"explored"`
+}
+
 // Dungeon represents an active dungeon run.
 type Dungeon struct {
 	Name         string         `json:"name"`
@@ -378,11 +391,16 @@ type Dungeon struct {
 
 // DungeonFloor represents a single floor within a dungeon.
 type DungeonFloor struct {
-	FloorNumber int           `json:"floor_number"`
-	Rooms       []DungeonRoom `json:"rooms"`
-	CurrentRoom int           `json:"current_room"`
-	Cleared     bool          `json:"cleared"`
-	BossFloor   bool          `json:"boss_floor"`
+	FloorNumber int             `json:"floor_number"`
+	Rooms       []DungeonRoom   `json:"rooms"`
+	CurrentRoom int             `json:"current_room"`
+	Cleared     bool            `json:"cleared"`
+	BossFloor   bool            `json:"boss_floor"`
+	Grid        [][]DungeonTile `json:"grid,omitempty"`
+	GridW       int             `json:"grid_w"`
+	GridH       int             `json:"grid_h"`
+	PlayerPos   GridPosition    `json:"player_pos"`
+	ExitPos     GridPosition    `json:"exit_pos"`
 }
 
 // DungeonRoom represents a single room on a dungeon floor.
@@ -393,6 +411,10 @@ type DungeonRoom struct {
 	Loot       []Item   `json:"loot,omitempty"`
 	TrapDamage int      `json:"trap_damage,omitempty"`
 	HealAmount int      `json:"heal_amount,omitempty"`
+	GridX      int      `json:"grid_x"`
+	GridY      int      `json:"grid_y"`
+	RoomW      int      `json:"room_w"`
+	RoomH      int      `json:"room_h"`
 }
 
 // NPCTownsfolk represents a persistent NPC in the town.
