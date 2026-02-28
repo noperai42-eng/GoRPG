@@ -60,6 +60,7 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	s.mux.HandleFunc("/api/characters", s.corsWrapper(s.authMiddleware(s.handleCharacters)))
 	s.mux.HandleFunc("/api/version", s.corsWrapper(s.handleVersion))
 	s.mux.HandleFunc("/api/leaderboard", s.corsWrapper(s.handleLeaderboard))
+	s.mux.HandleFunc("/api/mostwanted", s.corsWrapper(s.handleMostWanted))
 
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws/game", s.handleWebSocket)
@@ -72,6 +73,20 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	fs := http.FileServer(http.Dir(staticDir))
 	s.mux.Handle("/", noCacheStaticHandler(fs))
 
+	// Evolution ticker — monsters fight each other every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			result := s.engine.ProcessEvolutionTick()
+			if result != nil {
+				for _, evt := range result.Events {
+					log.Printf("[Evolution] %s at %s: %s", evt.EventType, evt.LocationName, evt.Details)
+				}
+			}
+		}
+	}()
+
 	return s
 }
 
@@ -79,7 +94,8 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 func noCacheStaticHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, ".js") || strings.HasSuffix(r.URL.Path, ".css") {
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			// Cache for 1 hour; ?v= query params handle cache busting on deploy
+			w.Header().Set("Cache-Control", "public, max-age=3600")
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -270,6 +286,34 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"category": category,
 		"entries":  entries,
+	})
+}
+
+// handleMostWanted handles GET /api/mostwanted?limit=10.
+func (s *Server) handleMostWanted(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10
+	if limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &limit); n != 1 || err != nil || limit < 1 {
+			limit = 10
+		}
+		if limit > 50 {
+			limit = 50
+		}
+	}
+
+	entries := s.engine.GetMostWanted(limit)
+	if entries == nil {
+		entries = []models.MostWantedEntry{}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"entries": entries,
 	})
 }
 

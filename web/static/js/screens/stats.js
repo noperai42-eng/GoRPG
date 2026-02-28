@@ -1,8 +1,9 @@
 // Stats & Leaderboard screen Alpine component
 function statsScreen() {
     return {
-        subTab: 'mystats', // 'mystats' | 'leaderboard'
+        subTab: 'mystats', // 'mystats' | 'leaderboard' | 'mostwanted'
         _leaderboardLoaded: false,
+        _mostWantedLoaded: false,
 
         get g() { return this.$store.game; },
         get p() { return this.$store.game.player; },
@@ -13,6 +14,10 @@ function statsScreen() {
                 if (val === 'leaderboard' && !this._leaderboardLoaded) {
                     this._leaderboardLoaded = true;
                     this.g.fetchLeaderboard();
+                }
+                if (val === 'mostwanted' && !this._mostWantedLoaded) {
+                    this._mostWantedLoaded = true;
+                    this.g.fetchMostWanted();
                 }
             });
         },
@@ -76,6 +81,30 @@ function statsScreen() {
             if (idx === 1) return 'rank-silver';
             if (idx === 2) return 'rank-bronze';
             return '';
+        },
+
+        // Most Wanted helpers
+        get mostWantedEntries() {
+            return this.g.mostWanted || [];
+        },
+
+        refreshMostWanted() {
+            this.g.fetchMostWanted();
+        },
+
+        rarityClass(rarity) {
+            if (!rarity) return 'rarity-common';
+            return 'rarity-' + rarity;
+        },
+
+        rarityLabel(rarity) {
+            if (!rarity || rarity === 'common') return 'Common';
+            const labels = { uncommon: 'Uncommon', rare: 'Rare', epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic' };
+            return labels[rarity] || 'Common';
+        },
+
+        totalKills(entry) {
+            return (entry.player_kills || 0) + (entry.monster_kills || 0);
         }
     };
 }

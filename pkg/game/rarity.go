@@ -21,24 +21,26 @@ var rarityMultipliers = map[models.MonsterRarity]RarityMultipliers{
 	models.RarityRare:      {50.0, 4, 3, 25.0, 4},
 	models.RarityEpic:      {250.0, 6, 5, 100.0, 6},
 	models.RarityLegendary: {1000.0, 10, 8, 500.0, 8},
+	models.RarityMythic:    {3000.0, 15, 12, 1500.0, 10},
 }
 
 // rarityWeights defines the base % chance for each rarity.
-// [common, uncommon, rare, epic, legendary]
-var baseRarityWeights = [5]int{60, 25, 10, 4, 1}
+// [common, uncommon, rare, epic, legendary, mythic]
+var baseRarityWeights = [6]int{60, 25, 10, 4, 1, 0}
 
-var rarityOrder = [5]models.MonsterRarity{
+var rarityOrder = [6]models.MonsterRarity{
 	models.RarityCommon,
 	models.RarityUncommon,
 	models.RarityRare,
 	models.RarityEpic,
 	models.RarityLegendary,
+	models.RarityMythic,
 }
 
 // RollRarity returns a random rarity tier. Higher rankMax shifts weights
 // toward rarer tiers.
 func RollRarity(rankMax int) models.MonsterRarity {
-	weights := [5]int{}
+	weights := [6]int{}
 	copy(weights[:], baseRarityWeights[:])
 
 	// Shift weights based on rankMax: each point above 1 adds to rarer tiers
@@ -52,6 +54,7 @@ func RollRarity(rankMax int) models.MonsterRarity {
 		weights[2] += shift * 2
 		weights[3] += shift
 		weights[4] += shift / 2
+		// Mythic only appears via evolution/player-kill upgrades, not random rolls
 	}
 
 	total := 0
@@ -140,7 +143,31 @@ func RarityDisplayName(r models.MonsterRarity) string {
 		return "Epic"
 	case models.RarityLegendary:
 		return "Legendary"
+	case models.RarityMythic:
+		return "Mythic"
 	default:
 		return "Common"
 	}
+}
+
+// NextRarity returns the rarity one tier above the given rarity, or "" if already max.
+func NextRarity(r models.MonsterRarity) models.MonsterRarity {
+	r = NormalizeRarity(r)
+	for i, tier := range rarityOrder {
+		if tier == r && i+1 < len(rarityOrder) {
+			return rarityOrder[i+1]
+		}
+	}
+	return ""
+}
+
+// RarityIndex returns the numeric index of a rarity (0=common, 5=mythic).
+func RarityIndex(r models.MonsterRarity) int {
+	r = NormalizeRarity(r)
+	for i, tier := range rarityOrder {
+		if tier == r {
+			return i
+		}
+	}
+	return 0
 }

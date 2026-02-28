@@ -365,6 +365,10 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 	case StateTownNPCQuestBoard, StateTownNPCQuestDetail,
 		StateTownNPCQuestAccept, StateTownNPCQuestTurnIn:
 		return e.handleTownNPCQuestBoard(session, cmd)
+	case StateMostWantedBoard:
+		return e.handleMostWantedBoard(session, cmd)
+	case StateMostWantedHunt:
+		return e.handleMostWantedHunt(session, cmd)
 	case StateDungeonSelect:
 		return e.handleDungeonSelect(session, cmd)
 	case StateDungeonFloorMap:
@@ -560,6 +564,70 @@ func sessionActivity(state string) string {
 	return "Hub"
 }
 
+// EvolutionTickResult holds the results of a monster evolution tick.
+type EvolutionTickResult struct {
+	Events []game.EvolutionEvent
+}
+
+// ProcessEvolutionTick runs monster-vs-monster combat across all locations.
+func (e *Engine) ProcessEvolutionTick() *EvolutionTickResult {
+	if e.store == nil {
+		return nil
+	}
+
+	locations, err := e.store.LoadLocations()
+	if err != nil {
+		fmt.Printf("[Evolution] Failed to load locations: %v\n", err)
+		return nil
+	}
+	if len(locations) == 0 {
+		return nil
+	}
+
+	// Migrate old monsters missing IDs
+	game.MigrateMonsterIDs(locations)
+
+	// Need a GameState for monster generation in ProcessLocationEvolution
+	gs := &models.GameState{GameLocations: locations}
+
+	var allEvents []game.EvolutionEvent
+	for locName, loc := range locations {
+		events := game.ProcessLocationEvolution(&loc, gs)
+		locations[locName] = loc
+		allEvents = append(allEvents, events...)
+	}
+
+	// Save updated locations
+	if err := e.store.SaveLocations(locations); err != nil {
+		fmt.Printf("[Evolution] Failed to save locations: %v\n", err)
+		return nil
+	}
+
+	// Update all active sessions' GameLocations to keep them current
+	e.mu.RLock()
+	for _, sess := range e.sessions {
+		sess.GameState.GameLocations = locations
+	}
+	e.mu.RUnlock()
+
+	if len(allEvents) == 0 {
+		return nil
+	}
+	return &EvolutionTickResult{Events: allEvents}
+}
+
+// GetMostWanted returns the top N most dangerous monsters across all locations.
+func (e *Engine) GetMostWanted(limit int) []models.MostWantedEntry {
+	if e.store == nil {
+		return nil
+	}
+	locations, err := e.store.LoadLocations()
+	if err != nil {
+		return nil
+	}
+	return game.GetMostWanted(locations, limit)
+}
+
 // RemoveSession removes a session from the engine.
 func (e *Engine) RemoveSession(sessionID string) {
 	e.mu.Lock()
@@ -582,6 +650,7 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 		Opt("8", "AUTO-PLAY MODE"),
 		Opt("9", "Quest Log"),
 		Opt("12", "Enter Dungeon"),
+		Opt("13", "Bounty Board"),
 		Opt("exit", "Exit Game"),
 	}
 

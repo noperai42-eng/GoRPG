@@ -20,6 +20,7 @@ const (
 	RarityRare      MonsterRarity = "rare"
 	RarityEpic      MonsterRarity = "epic"
 	RarityLegendary MonsterRarity = "legendary"
+	RarityMythic    MonsterRarity = "mythic"
 )
 
 type GameState struct {
@@ -242,6 +243,10 @@ type Monster struct {
 	IsSkillGuardian    bool                   `json:"is_skill_guardian"`
 	GuardedSkill       Skill                  `json:"guarded_skill"`
 	IsBoss             bool                   `json:"is_boss"`
+	ID                 string                 `json:"id,omitempty"`
+	LocationName       string                 `json:"location_name,omitempty"`
+	PlayerKills        int                    `json:"player_kills,omitempty"`
+	MonsterKills       int                    `json:"monster_kills,omitempty"`
 }
 
 type Item struct {
@@ -363,6 +368,12 @@ type CharacterStats struct {
 	PvPWins         int            `json:"pvp_wins"`
 	PvPLosses       int            `json:"pvp_losses"`
 	DungeonsCleared int            `json:"dungeons_cleared"`
+	DungeonsEntered int            `json:"dungeons_entered"`
+	FloorsCleared   int            `json:"floors_cleared"`
+	RoomsExplored   int            `json:"rooms_explored"`
+	TreasuresFound  int            `json:"treasures_found"`
+	TrapsTriggered  int            `json:"traps_triggered"`
+	HiddenChests    int            `json:"hidden_chests_found"`
 }
 
 // GridPosition represents a 2D coordinate on the dungeon grid.
@@ -493,4 +504,19 @@ type NPCQuestReward struct {
 	Gold       int `json:"gold"`
 	Reputation int `json:"reputation"`
 	ItemRarity int `json:"item_rarity,omitempty"`
+}
+
+// MostWantedEntry represents a monster on the Most Wanted board.
+type MostWantedEntry struct {
+	MonsterID    string        `json:"monster_id"`
+	Name         string        `json:"name"`
+	MonsterType  string        `json:"monster_type"`
+	Level        int           `json:"level"`
+	Rarity       MonsterRarity `json:"rarity"`
+	PlayerKills  int           `json:"player_kills"`
+	MonsterKills int           `json:"monster_kills"`
+	LocationName string        `json:"location_name"`
+	LocationIdx  int           `json:"location_idx"`
+	IsBoss       bool          `json:"is_boss"`
+	HP           int           `json:"hp"`
 }

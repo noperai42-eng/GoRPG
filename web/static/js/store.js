@@ -23,6 +23,7 @@ document.addEventListener('alpine:init', () => {
         version: '',             // server version string
         leaderboard: null,       // leaderboard entries from API
         leaderboardCategory: 'kills', // current leaderboard category
+        mostWanted: null,        // most wanted monster entries from API
 
         get inCombat() { return this.combat !== null; },
 
@@ -225,6 +226,12 @@ document.addEventListener('alpine:init', () => {
                 return; // combat overlay handles this
             }
 
+            // Bounty board screens
+            if (s === 'most_wanted_board' || s === 'most_wanted_hunt') {
+                this.activeTab = 'hub';
+                return;
+            }
+
             // Map screens
             if (s === 'hunt_location_select' || s === 'hunt_count_select' || s === 'hunt_tracking') {
                 this.activeTab = 'map';
@@ -304,6 +311,18 @@ document.addEventListener('alpine:init', () => {
                 this.leaderboard = data.entries || [];
             })
             .catch(() => { this.leaderboard = []; });
+        },
+
+        // Fetch most wanted monsters from REST API
+        fetchMostWanted() {
+            fetch('/api/mostwanted?limit=10', {
+                headers: Auth.getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.mostWanted = data.entries || [];
+            })
+            .catch(() => { this.mostWanted = []; });
         },
 
         // Pick the most interesting message from a group as its header

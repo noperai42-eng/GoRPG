@@ -340,6 +340,11 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		session.State = StateDungeonSelect
 		return e.handleDungeonSelect(session, GameCommand{Type: "init"})
 
+	case "13":
+		// Bounty Board
+		session.State = StateMostWantedBoard
+		return e.handleMostWantedBoard(session, GameCommand{Type: "init"})
+
 	case "exit":
 		gs.CharactersMap[player.Name] = *player
 		game.WriteGameStateToFile(*gs, session.SaveFile)

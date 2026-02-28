@@ -730,7 +730,8 @@
                     <!-- Legend -->
                     <div class="dungeon-legend" x-show="grid && isGridView">
                         <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-player">@</span> You</div>
-                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room">!</span> Room</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room">!</span> Combat</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room">?</span> Search</div>
                         <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room-cleared">.</span> Cleared</div>
                         <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-exit">E</span> Exit</div>
                         <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-fog"></span> Fog</div>
@@ -804,6 +805,7 @@
                 <div class="sub-tabs">
                     <button class="sub-tab" :class="{ active: subTab === 'mystats' }" @click="subTab = 'mystats'">My Stats</button>
                     <button class="sub-tab" :class="{ active: subTab === 'leaderboard' }" @click="subTab = 'leaderboard'">Leaderboard</button>
+                    <button class="sub-tab" :class="{ active: subTab === 'mostwanted' }" @click="subTab = 'mostwanted'">Most Wanted</button>
                 </div>
 
                 <!-- My Stats -->
@@ -837,6 +839,12 @@
                                     <div class="section-header">Progression</div>
                                     <div class="stat-row"><span class="stat-label">Bosses Killed</span><span class="stat-value" x-text="stats.bosses_killed"></span></div>
                                     <div class="stat-row"><span class="stat-label">Dungeons Cleared</span><span class="stat-value" x-text="stats.dungeons_cleared"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Dungeons Entered</span><span class="stat-value" x-text="stats.dungeons_entered"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Floors Cleared</span><span class="stat-value" x-text="stats.floors_cleared"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Rooms Explored</span><span class="stat-value" x-text="stats.rooms_explored"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Treasures Found</span><span class="stat-value" x-text="stats.treasures_found"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Hidden Chests</span><span class="stat-value" x-text="stats.hidden_chests_found"></span></div>
+                                    <div class="stat-row"><span class="stat-label">Traps Triggered</span><span class="stat-value" x-text="stats.traps_triggered"></span></div>
                                 </div>
                             </div>
 
@@ -870,6 +878,27 @@
                         </template>
                     </div>
                     <div class="leaderboard-empty" x-show="leaderboardEntries.length === 0">No leaderboard entries yet.</div>
+                </div>
+
+                <!-- Most Wanted -->
+                <div x-show="subTab === 'mostwanted'" class="stats-content">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary); font-size: 0.85rem;">Top 10 Most Dangerous Monsters</span>
+                        <button class="btn btn-ghost btn-sm" @click="refreshMostWanted()">Refresh</button>
+                    </div>
+                    <div class="leaderboard-table">
+                        <template x-for="(entry, idx) in mostWantedEntries" :key="entry.monster_id || idx">
+                            <div class="leaderboard-row">
+                                <span class="leaderboard-rank" :class="rankClass(idx)" x-text="'#' + (idx + 1)"></span>
+                                <span class="most-wanted-rarity-badge" :class="rarityClass(entry.rarity)" x-text="rarityLabel(entry.rarity)"></span>
+                                <span class="leaderboard-name" x-text="entry.name"></span>
+                                <span class="leaderboard-level" x-text="'Lv ' + entry.level"></span>
+                                <span class="most-wanted-location" x-text="entry.location_name"></span>
+                                <span class="leaderboard-score" :title="'Player kills: ' + entry.player_kills + ' / Monster kills: ' + entry.monster_kills" x-text="totalKills(entry) + ' kills'"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="leaderboard-empty" x-show="mostWantedEntries.length === 0">No notorious monsters yet. Monsters gain notoriety by killing players and other monsters.</div>
                 </div>
             </div>
 

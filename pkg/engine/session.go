@@ -92,6 +92,10 @@ const (
 	StateTownInnGamblePlay      = "town_inn_gamble_play"
 	StateTownInnHireFighter     = "town_inn_hire_fighter"
 
+	// Bounty states
+	StateMostWantedBoard = "most_wanted_board"
+	StateMostWantedHunt  = "most_wanted_hunt"
+
 	// Dungeon states
 	StateDungeonSelect    = "dungeon_select"
 	StateDungeonFloorMap  = "dungeon_floor_map"
@@ -158,4 +162,8 @@ type GameSession struct {
 	PvPTargetGuest       *models.InnGuest
 	TownQuestResource    string
 	TownQuestAmount      int
+
+	// Bounty context
+	SelectedBountyLocName string
+	SelectedBountyMobIdx  int
 }

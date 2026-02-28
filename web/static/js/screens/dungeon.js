@@ -78,6 +78,7 @@ function dungeonScreen() {
                     if (tile.room_type === 'rest') return tile.cleared ? '.' : '+';
                     if (tile.room_type === 'merchant') return tile.cleared ? '.' : 'M';
                     if (tile.room_type === 'boss') return tile.cleared ? '.' : 'B';
+                    if (tile.room_type === 'investigation') return tile.cleared ? '.' : '?';
                     return tile.cleared ? '.' : '?';
                 case 'corridor': return '.';
                 case 'entrance': return 'S';

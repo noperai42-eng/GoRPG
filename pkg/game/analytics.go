@@ -58,3 +58,33 @@ func RecordPvPResult(stats *models.CharacterStats, won bool) {
 func RecordDungeonClear(stats *models.CharacterStats) {
 	stats.DungeonsCleared++
 }
+
+// RecordDungeonEntered increments the dungeons entered counter.
+func RecordDungeonEntered(stats *models.CharacterStats) {
+	stats.DungeonsEntered++
+}
+
+// RecordFloorCleared increments the floors cleared counter.
+func RecordFloorCleared(stats *models.CharacterStats) {
+	stats.FloorsCleared++
+}
+
+// RecordRoomExplored increments the rooms explored counter.
+func RecordRoomExplored(stats *models.CharacterStats) {
+	stats.RoomsExplored++
+}
+
+// RecordTreasureFound increments the treasures found counter.
+func RecordTreasureFound(stats *models.CharacterStats) {
+	stats.TreasuresFound++
+}
+
+// RecordTrapTriggered increments the traps triggered counter.
+func RecordTrapTriggered(stats *models.CharacterStats) {
+	stats.TrapsTriggered++
+}
+
+// RecordHiddenChest increments the hidden chests found counter.
+func RecordHiddenChest(stats *models.CharacterStats) {
+	stats.HiddenChests++
+}

@@ -24,6 +24,7 @@ func GenerateMonstersForLocation(location *models.Location, game *models.GameSta
 	location.Monsters = make([]models.Monster, 20)
 	for i := 0; i < 20; i++ {
 		location.Monsters[i] = GenerateBestMonster(game, location.LevelMax, location.RarityMax)
+		location.Monsters[i].LocationName = location.Name
 	}
 
 	// Add Skill Guardians based on location level
@@ -60,6 +61,7 @@ func GenerateMonstersForLocation(location *models.Location, game *models.GameSta
 			guardianLevel := location.LevelMax + rand.Intn(location.LevelMax/2+1) + 3
 
 			guardian := GenerateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
+			guardian.LocationName = location.Name
 			location.Monsters[guardianPos] = guardian
 
 			fmt.Printf("Spawned %s (Lv%d) guarding %s at %s\n",

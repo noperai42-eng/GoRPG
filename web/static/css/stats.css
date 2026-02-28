@@ -128,3 +128,60 @@
     color: var(--text-muted);
     font-size: 0.9rem;
 }
+
+/* ===== Most Wanted / Rarity Colors ===== */
+.most-wanted-rarity-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-width: 4.5rem;
+    text-align: center;
+}
+
+.most-wanted-location {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    min-width: 5rem;
+    text-align: center;
+}
+
+.rarity-common {
+    color: #aaa;
+    background: rgba(170, 170, 170, 0.1);
+    border: 1px solid rgba(170, 170, 170, 0.3);
+}
+
+.rarity-uncommon {
+    color: #2ecc40;
+    background: rgba(46, 204, 64, 0.1);
+    border: 1px solid rgba(46, 204, 64, 0.3);
+}
+
+.rarity-rare {
+    color: #0074d9;
+    background: rgba(0, 116, 217, 0.1);
+    border: 1px solid rgba(0, 116, 217, 0.3);
+}
+
+.rarity-epic {
+    color: #b10dc9;
+    background: rgba(177, 13, 201, 0.1);
+    border: 1px solid rgba(177, 13, 201, 0.3);
+}
+
+.rarity-legendary {
+    color: #ff851b;
+    background: rgba(255, 133, 27, 0.1);
+    border: 1px solid rgba(255, 133, 27, 0.3);
+}
+
+.rarity-mythic {
+    color: #ff4136;
+    background: rgba(255, 65, 54, 0.15);
+    border: 1px solid rgba(255, 65, 54, 0.5);
+    text-shadow: 0 0 6px rgba(255, 65, 54, 0.4);
+}

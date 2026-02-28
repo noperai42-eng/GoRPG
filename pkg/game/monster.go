@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math/rand"
+	"time"
 
 	"rpg-game/pkg/data"
 	"rpg-game/pkg/models"
@@ -386,6 +387,7 @@ func GenerateMonster(name string, level int, rank int) models.Monster {
 	resistances := buildResistances(name)
 
 	monster := models.Monster{
+		ID:                 fmt.Sprintf("mob-%d-%d", time.Now().UnixNano(), rand.Intn(100000)),
 		Name:               name,
 		Level:              level,
 		Experience:         0,
@@ -568,6 +570,30 @@ func LevelUpMob(mob *models.Monster) {
 			fmt.Printf("%s leveled up to %d!\n", mob.Name, mob.Level)
 		}
 	}
+}
+
+// GeneratePlayerKillerName returns a special title name for a monster based on how many players it has killed.
+func GeneratePlayerKillerName(monsterType string, kills int) string {
+	prefixes := []struct {
+		minKills int
+		titles   []string
+	}{
+		{50, []string{"Godslayer", "The Undying", "Apocalypse"}},
+		{30, []string{"Dread Lord", "The Eternal", "Doom Bringer"}},
+		{20, []string{"Warlord", "The Feared", "Nightmare"}},
+		{10, []string{"Slayer", "The Dreaded", "Scourge"}},
+		{5, []string{"Bloodthirsty", "The Vicious", "Savage"}},
+		{3, []string{"Veteran", "The Fierce", "Ruthless"}},
+		{1, []string{"Blooded", "The Dangerous", "Menacing"}},
+	}
+
+	for _, p := range prefixes {
+		if kills >= p.minKills {
+			title := p.titles[rand.Intn(len(p.titles))]
+			return fmt.Sprintf("%s %s", title, monsterType)
+		}
+	}
+	return monsterType
 }
 
 // ────────────────────────────────────────────────────────────────────────────

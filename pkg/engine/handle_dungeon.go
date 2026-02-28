@@ -58,6 +58,7 @@ func (e *Engine) handleDungeonSelect(session *GameSession, cmd GameCommand) Game
 	seed := time.Now().UnixNano()
 	dungeon := game.GenerateDungeon(tmpl, seed)
 	player.ActiveDungeon = &dungeon
+	game.RecordDungeonEntered(&player.Stats)
 
 	msgs := []GameMessage{
 		Msg(fmt.Sprintf("Entering %s...", dungeon.Name), "narrative"),
@@ -190,6 +191,7 @@ func (e *Engine) handleDungeonMove(session *GameSession, cmd GameCommand) GameRe
 
 		if clearedCount >= requiredClears {
 			floor.Cleared = true
+			game.RecordFloorCleared(&player.Stats)
 			if dungeon.CurrentFloor+1 >= len(dungeon.Floors) {
 				return e.completeDungeon(session)
 			}
@@ -275,6 +277,8 @@ func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
 		return e.showDungeonGrid(session, []GameMessage{Msg("This room has already been cleared.", "system")})
 	}
 
+	game.RecordRoomExplored(&player.Stats)
+
 	switch room.Type {
 	case "combat", "boss":
 		return e.startDungeonCombat(session, room)
@@ -286,6 +290,8 @@ func (e *Engine) enterDungeonRoom(session *GameSession) GameResponse {
 		return e.handleDungeonRest(session, room)
 	case "merchant":
 		return e.handleDungeonMerchant(session, room)
+	case "investigation":
+		return e.handleDungeonInvestigation(session, room)
 	default:
 		room.Cleared = true
 		session.State = StateDungeonGridMove
@@ -357,6 +363,8 @@ func (e *Engine) handleDungeonTreasure(session *GameSession, room *models.Dungeo
 	player := session.Player
 	dungeon := player.ActiveDungeon
 
+	game.RecordTreasureFound(&player.Stats)
+
 	msgs := []GameMessage{
 		Msg("You found a treasure room!", "narrative"),
 	}
@@ -385,6 +393,8 @@ func (e *Engine) handleDungeonTreasure(session *GameSession, room *models.Dungeo
 func (e *Engine) handleDungeonTrap(session *GameSession, room *models.DungeonRoom) GameResponse {
 	player := session.Player
 	dungeon := player.ActiveDungeon
+
+	game.RecordTrapTriggered(&player.Stats)
 
 	// 50% chance to dodge
 	dodged := rand.Intn(100) < 50
@@ -473,6 +483,141 @@ func (e *Engine) handleDungeonMerchant(session *GameSession, room *models.Dungeo
 			game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
 			msgs = append(msgs, Msg(fmt.Sprintf("Received: %s (CP:%d)", item.Name, item.CP), "loot"))
 		}
+	}
+
+	room.Cleared = true
+
+	session.State = StateDungeonFloorMap
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State: &StateData{
+			Screen:  "dungeon_room",
+			Player:  MakePlayerState(player),
+			Dungeon: makeDungeonView(dungeon),
+		},
+		Options: []MenuOption{Opt("proceed", "Continue")},
+	}
+}
+
+// handleDungeonInvestigation processes an investigation room where players search for hidden loot.
+func (e *Engine) handleDungeonInvestigation(session *GameSession, room *models.DungeonRoom) GameResponse {
+	player := session.Player
+	dungeon := player.ActiveDungeon
+	floorNum := dungeon.Floors[dungeon.CurrentFloor].FloorNumber
+
+	msgs := []GameMessage{
+		Msg("You enter a quiet, dusty chamber. Something feels hidden here...", "narrative"),
+	}
+
+	// Roll for what the player finds: 40% hidden chest, 25% hidden trap, 20% bonus treasure, 15% nothing
+	roll := rand.Intn(100)
+
+	if roll < 40 {
+		// Hidden chest with gold, resources, and possibly items
+		game.RecordHiddenChest(&player.Stats)
+		game.RecordTreasureFound(&player.Stats)
+		msgs = append(msgs, Msg("You discovered a hidden chest!", "loot"))
+
+		// Gold reward
+		goldAmount := 10 + floorNum*5 + rand.Intn(floorNum*3+1)
+		if player.ResourceStorageMap == nil {
+			player.ResourceStorageMap = make(map[string]models.Resource)
+		}
+		goldRes := player.ResourceStorageMap["Gold"]
+		goldRes.Name = "Gold"
+		goldRes.Stock += goldAmount
+		player.ResourceStorageMap["Gold"] = goldRes
+		msgs = append(msgs, Msg(fmt.Sprintf("Found %d Gold!", goldAmount), "loot"))
+
+		// Village resources (random type)
+		resourceTypes := []string{"Lumber", "Iron", "Sand", "Stone"}
+		resName := resourceTypes[rand.Intn(len(resourceTypes))]
+		resAmount := 2 + rand.Intn(floorNum+1)
+		res := player.ResourceStorageMap[resName]
+		res.Name = resName
+		res.Stock += resAmount
+		player.ResourceStorageMap[resName] = res
+		msgs = append(msgs, Msg(fmt.Sprintf("Found %d %s!", resAmount, resName), "loot"))
+
+		// Equipment from pre-generated loot
+		for _, item := range room.Loot {
+			game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
+			msgs = append(msgs, Msg(fmt.Sprintf("Found: %s (Rarity %d, CP:%d)", item.Name, item.Rarity, item.CP), "loot"))
+		}
+
+	} else if roll < 65 {
+		// Hidden trap
+		game.RecordTrapTriggered(&player.Stats)
+		dodged := rand.Intn(100) < 40
+		if dodged {
+			msgs = append(msgs, Msg("You triggered a hidden trap, but dodged it!", "narrative"))
+		} else {
+			player.HitpointsRemaining -= room.TrapDamage
+			msgs = append(msgs, Msg(fmt.Sprintf("A hidden trap springs! You take %d damage!", room.TrapDamage), "damage"))
+			if player.HitpointsRemaining <= 0 {
+				room.Cleared = true
+				return e.handleDungeonDefeat(session, msgs)
+			}
+		}
+		// Still get partial loot even from trapped rooms
+		if len(room.Loot) > 0 {
+			item := room.Loot[0]
+			game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
+			msgs = append(msgs, Msg(fmt.Sprintf("Salvaged: %s (CP:%d)", item.Name, item.CP), "loot"))
+		}
+
+	} else if roll < 85 {
+		// Bonus treasure - big haul with gold, resources, and skill scroll XP
+		game.RecordHiddenChest(&player.Stats)
+		game.RecordTreasureFound(&player.Stats)
+		msgs = append(msgs, Msg("You found a hidden bonus treasure cache!", "loot"))
+
+		// Large gold reward
+		goldAmount := 25 + floorNum*10 + rand.Intn(floorNum*5+1)
+		if player.ResourceStorageMap == nil {
+			player.ResourceStorageMap = make(map[string]models.Resource)
+		}
+		goldRes := player.ResourceStorageMap["Gold"]
+		goldRes.Name = "Gold"
+		goldRes.Stock += goldAmount
+		player.ResourceStorageMap["Gold"] = goldRes
+		msgs = append(msgs, Msg(fmt.Sprintf("Found %d Gold!", goldAmount), "loot"))
+
+		// Multiple village resources
+		resourceTypes := []string{"Lumber", "Iron", "Sand", "Stone"}
+		for i := 0; i < 2; i++ {
+			resName := resourceTypes[rand.Intn(len(resourceTypes))]
+			resAmount := 3 + rand.Intn(floorNum*2+1)
+			res := player.ResourceStorageMap[resName]
+			res.Name = resName
+			res.Stock += resAmount
+			player.ResourceStorageMap[resName] = res
+			msgs = append(msgs, Msg(fmt.Sprintf("Found %d %s!", resAmount, resName), "loot"))
+		}
+
+		// Skill scroll: bonus XP
+		scrollXP := 50 + floorNum*25
+		player.Experience += scrollXP
+		game.RecordXPGained(&player.Stats, scrollXP)
+		msgs = append(msgs, Msg(fmt.Sprintf("Found a Skill Scroll! +%d XP", scrollXP), "levelup"))
+
+		// Level up check
+		prevLevel := player.Level
+		game.LevelUp(player)
+		if player.Level > prevLevel {
+			msgs = append(msgs, Msg(fmt.Sprintf("LEVEL UP! Now level %d!", player.Level), "levelup"))
+		}
+
+		// All pre-generated loot
+		for _, item := range room.Loot {
+			game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
+			msgs = append(msgs, Msg(fmt.Sprintf("Found: %s (Rarity %d, CP:%d)", item.Name, item.Rarity, item.CP), "loot"))
+		}
+
+	} else {
+		// Nothing found
+		msgs = append(msgs, Msg("After a thorough search, you find nothing of value.", "narrative"))
 	}
 
 	room.Cleared = true

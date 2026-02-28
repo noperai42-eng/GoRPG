@@ -985,7 +985,9 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 
 	// Replace monster at location
 	if combat.Location != nil && combat.MobLoc >= 0 && combat.MobLoc < len(combat.Location.Monsters) {
-		combat.Location.Monsters[combat.MobLoc] = game.GenerateBestMonster(session.GameState, combat.Location.LevelMax, combat.Location.RarityMax)
+		newMob := game.GenerateBestMonster(session.GameState, combat.Location.LevelMax, combat.Location.RarityMax)
+		newMob.LocationName = combat.Location.Name
+		combat.Location.Monsters[combat.MobLoc] = newMob
 	}
 
 	// Update guard states in village after combat
@@ -1215,10 +1217,34 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 		game.EquipBestItem(item, &mob.EquipmentMap, &mob.Inventory)
 	}
 
-	// Give mob XP
+	// Give mob XP, track player kill, upgrade monster
 	if combat.Location != nil && combat.MobLoc >= 0 && combat.MobLoc < len(combat.Location.Monsters) {
-		combat.Location.Monsters[combat.MobLoc].StatsMod = game.CalculateItemMods(mob.EquipmentMap)
-		combat.Location.Monsters[combat.MobLoc].Experience += player.Level * 100
+		locMob := &combat.Location.Monsters[combat.MobLoc]
+		locMob.StatsMod = game.CalculateItemMods(mob.EquipmentMap)
+		locMob.Experience += player.Level * 100
+		locMob.PlayerKills++
+
+		// Monster gains a level and full HP restore for killing a player
+		locMob.Experience += player.Level * 100
+		game.LevelUpMob(locMob)
+		locMob.HitpointsRemaining = locMob.HitpointsTotal
+		locMob.ManaRemaining = locMob.ManaTotal
+		locMob.StaminaRemaining = locMob.StaminaTotal
+
+		// Give the monster a special name based on kills
+		locMob.Name = game.GeneratePlayerKillerName(locMob.MonsterType, locMob.PlayerKills)
+		msgs = append(msgs, Msg(fmt.Sprintf("%s has earned the title: %s!", locMob.MonsterType, locMob.Name), "narrative"))
+
+		// Every 10 player kills = rarity upgrade
+		if locMob.PlayerKills%10 == 0 {
+			newRarity := game.NextRarity(locMob.Rarity)
+			if newRarity != "" {
+				locMob.Rarity = newRarity
+				game.ApplyRarity(locMob)
+				locMob.HitpointsRemaining = locMob.HitpointsTotal
+				msgs = append(msgs, Msg(fmt.Sprintf("%s has evolved to %s rarity!", locMob.Name, game.RarityDisplayName(newRarity)), "narrative"))
+			}
+		}
 	}
 
 	// Process guard recovery

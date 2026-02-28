@@ -106,6 +106,22 @@ func GenerateDungeon(template data.DungeonTemplate, seed int64) models.Dungeon {
 					}
 				}
 				room.Loot = loot
+
+			case "investigation":
+				// Investigation rooms have hidden contents determined at creation
+				// Loot is pre-generated; the handler decides what the player finds
+				numItems := rng.Intn(2) + 1
+				loot := make([]models.Item, numItems)
+				itemRarity := scaledRankMax + 1
+				if itemRarity > 10 {
+					itemRarity = 10
+				}
+				for i := 0; i < numItems; i++ {
+					loot[i] = GenerateItem(itemRarity)
+				}
+				room.Loot = loot
+				// Trap damage for hidden traps (lower than dedicated trap rooms)
+				room.TrapDamage = 3 + floorNum*2
 			}
 
 			floor.Rooms[r] = room
@@ -186,12 +202,13 @@ func rollRoomType(rng *rand.Rand) string {
 		weight   int
 	}
 	weights := []roomWeight{
-		{"combat", 50},
-		{"treasure", 15},
+		{"combat", 45},
+		{"treasure", 12},
+		{"investigation", 12},
 		{"trap", 10},
 		{"rest", 10},
-		{"merchant", 10},
-		{"combat", 5}, // boss weight rolls into combat for non-boss placements
+		{"merchant", 8},
+		{"combat", 3}, // boss weight rolls into combat for non-boss placements
 	}
 
 	total := 0
