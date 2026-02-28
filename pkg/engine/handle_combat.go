@@ -863,6 +863,11 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	mob := &combat.Mob
 	combat.PlayerWon = true
 
+	// Arena victory — no loot, no XP, just rating changes
+	if combat.IsArena {
+		return e.resolveArenaWin(session, msgs)
+	}
+
 	xpGained := int(float64(scaledXP(player.Level, mob.Level)) * game.RarityXPMult(mob.Rarity))
 	// Cap XP per fight to 1/10th of what's needed to level up, so players
 	// must fight at least 10 monsters to level even against very high-level foes.
@@ -1063,8 +1068,35 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		combinedSeen = append(combinedSeen, player.LockedLocations...)
 		discovered := game.SearchLocation(combinedSeen, data.DiscoverableLocations)
 		if discovered != "" {
-			player.LockedLocations = append(player.LockedLocations, discovered)
-			msgs = append(msgs, Msg(fmt.Sprintf("You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+			// Look up location type
+			locData, locExists := session.GameState.GameLocations[discovered]
+			if locExists && locData.Type == "Base" {
+				// Base locations go directly to KnownLocations (no guardian fight)
+				if !game.Contains(player.KnownLocations, discovered) {
+					player.KnownLocations = append(player.KnownLocations, discovered)
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("You discovered a safe area: %s!", discovered), "narrative"))
+				// Unlock village capability if applicable
+				if session.GameState.Villages == nil {
+					session.GameState.Villages = make(map[string]models.Village)
+				}
+				village, exists := session.GameState.Villages[player.VillageName]
+				if !exists {
+					village = game.GenerateVillage(player.Name)
+					player.VillageName = player.Name + "'s Village"
+				}
+				unlockMsg := game.UnlockBaseLocationCapability(&village, discovered)
+				if unlockMsg != "" {
+					msgs = append(msgs, Msg(unlockMsg, "narrative"))
+				}
+				session.GameState.Villages[player.VillageName] = village
+			} else {
+				// Non-base locations go to LockedLocations with dedup
+				if !game.Contains(player.LockedLocations, discovered) {
+					player.LockedLocations = append(player.LockedLocations, discovered)
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+			}
 		}
 	}
 
@@ -1204,6 +1236,11 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 	combat := session.Combat
 	player := session.Player
 	mob := &combat.Mob
+
+	// Arena defeat — no loot transfer, no death penalty, just rating changes
+	if combat.IsArena {
+		return e.resolveArenaLoss(session, msgs)
+	}
 
 	msgs = append(msgs, Msg("========================================", "system"))
 	msgs = append(msgs, Msg(fmt.Sprintf("DEFEAT! %s HAS DIED!", player.Name), "combat"))

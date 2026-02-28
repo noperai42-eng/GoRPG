@@ -10,7 +10,6 @@ var DiscoverableLocations = []models.Location{
 	{Name: "Hills", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
 	{Name: "Hunters Lodge", Weight: 12, Type: "Ruin", LevelMax: 50, RarityMax: 3},
 	{Name: "Forest Ruins", Weight: 14, Type: "Ruin", LevelMax: 100, RarityMax: 5},
-	{Name: "Lake", Weight: 17, Type: "Mix"},
 	{Name: "Lake Ruins", Weight: 24, Type: "Ruin"},
 	{Name: "Quarry", Weight: 28, Type: "Resource"},
 	{Name: "Stone Keep", Weight: 33, Type: "Base"},

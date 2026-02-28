@@ -314,6 +314,12 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleVillageTakeItem(session, cmd)
 	case StateVillageHealGuard:
 		return e.handleVillageHealGuard(session, cmd)
+	case StateVillageFortifications:
+		return e.handleVillageFortifications(session, cmd)
+	case StateVillageTraining:
+		return e.handleVillageTraining(session, cmd)
+	case StateVillageHealing:
+		return e.handleVillageHealing(session, cmd)
 	case StateGuideMain:
 		return e.handleGuideMain(session, cmd)
 	case StateGuideCombat, StateGuideSkills, StateGuideVillage,
@@ -369,6 +375,12 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleMostWantedBoard(session, cmd)
 	case StateMostWantedHunt:
 		return e.handleMostWantedHunt(session, cmd)
+	case StateArenaMain:
+		return e.handleArenaMain(session, cmd)
+	case StateArenaChallenge:
+		return e.handleArenaChallenge(session, cmd)
+	case StateArenaConfirm:
+		return e.handleArenaConfirm(session, cmd)
 	case StateDungeonSelect:
 		return e.handleDungeonSelect(session, cmd)
 	case StateDungeonFloorMap:
@@ -561,6 +573,9 @@ func sessionActivity(state string) string {
 	if strings.HasPrefix(state, "town") {
 		return "Town"
 	}
+	if strings.HasPrefix(state, "arena") {
+		return "Arena"
+	}
 	return "Hub"
 }
 
@@ -651,6 +666,7 @@ func BuildMainMenuResponse(session *GameSession) GameResponse {
 		Opt("9", "Quest Log"),
 		Opt("12", "Enter Dungeon"),
 		Opt("13", "Bounty Board"),
+		Opt("14", "Arena"),
 		Opt("exit", "Exit Game"),
 	}
 

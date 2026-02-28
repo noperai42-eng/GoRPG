@@ -145,6 +145,29 @@ func Contains(slice []string, item string) bool {
 	return false
 }
 
+// UnlockBaseLocationCapability grants a village crafting unlock when a Base
+// location is discovered. Returns a description message, or "" if no unlock.
+func UnlockBaseLocationCapability(village *models.Village, locationName string) string {
+	capMap := map[string]struct {
+		craft string
+		desc  string
+	}{
+		"Stone Keep":    {"fortifications", "Village defense crafting unlocked! Build stronger walls and traps."},
+		"Training Hub":  {"training", "Villager training unlocked! Boost villager efficiency and level."},
+		"Hospital":      {"healing", "Healing services unlocked! Restore HP/MP/SP at the village."},
+	}
+
+	entry, ok := capMap[locationName]
+	if !ok {
+		return ""
+	}
+	if Contains(village.UnlockedCrafting, entry.craft) {
+		return ""
+	}
+	village.UnlockedCrafting = append(village.UnlockedCrafting, entry.craft)
+	return entry.desc
+}
+
 func CountVillagersByRole(village *models.Village, role string) int {
 	count := 0
 	for _, villager := range village.Villagers {

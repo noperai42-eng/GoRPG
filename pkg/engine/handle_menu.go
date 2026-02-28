@@ -345,6 +345,11 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		session.State = StateMostWantedBoard
 		return e.handleMostWantedBoard(session, GameCommand{Type: "init"})
 
+	case "14":
+		// Arena
+		session.State = StateArenaMain
+		return e.handleArenaMain(session, GameCommand{Type: "init"})
+
 	case "exit":
 		gs.CharactersMap[player.Name] = *player
 		game.WriteGameStateToFile(*gs, session.SaveFile)
@@ -1159,8 +1164,32 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 			combinedSeen = append(combinedSeen, player.LockedLocations...)
 			discovered := game.SearchLocation(combinedSeen, data.DiscoverableLocations)
 			if discovered != "" {
-				player.LockedLocations = append(player.LockedLocations, discovered)
-				msgs = append(msgs, Msg(fmt.Sprintf("  You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+				locData, locExists := gs.GameLocations[discovered]
+				if locExists && locData.Type == "Base" {
+					if !game.Contains(player.KnownLocations, discovered) {
+						player.KnownLocations = append(player.KnownLocations, discovered)
+					}
+					msgs = append(msgs, Msg(fmt.Sprintf("  You discovered a safe area: %s!", discovered), "narrative"))
+					// Unlock village capability
+					if gs.Villages == nil {
+						gs.Villages = make(map[string]models.Village)
+					}
+					village, exists := gs.Villages[player.VillageName]
+					if !exists {
+						village = game.GenerateVillage(player.Name)
+						player.VillageName = player.Name + "'s Village"
+					}
+					unlockMsg := game.UnlockBaseLocationCapability(&village, discovered)
+					if unlockMsg != "" {
+						msgs = append(msgs, Msg("  "+unlockMsg, "narrative"))
+					}
+					gs.Villages[player.VillageName] = village
+				} else {
+					if !game.Contains(player.LockedLocations, discovered) {
+						player.LockedLocations = append(player.LockedLocations, discovered)
+					}
+					msgs = append(msgs, Msg(fmt.Sprintf("  You discovered a new area: %s! A powerful guardian blocks the entrance.", discovered), "narrative"))
+				}
 			}
 		}
 

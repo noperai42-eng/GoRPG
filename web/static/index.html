@@ -894,11 +894,57 @@
                                 <span class="leaderboard-name" x-text="entry.name"></span>
                                 <span class="leaderboard-level" x-text="'Lv ' + entry.level"></span>
                                 <span class="most-wanted-location" x-text="entry.location_name"></span>
-                                <span class="leaderboard-score" :title="'Player kills: ' + entry.player_kills + ' / Monster kills: ' + entry.monster_kills" x-text="totalKills(entry) + ' kills'"></span>
+                                <span class="leaderboard-score" :title="'Player kills: ' + entry.player_kills + ' | Monster kills: ' + (entry.monster_kills || 0)" x-text="totalKills(entry) + ' player kills'"></span>
                             </div>
                         </template>
                     </div>
-                    <div class="leaderboard-empty" x-show="mostWantedEntries.length === 0">No notorious monsters yet. Monsters gain notoriety by killing players and other monsters.</div>
+                    <div class="leaderboard-empty" x-show="mostWantedEntries.length === 0">No notorious monsters yet. Monsters gain notoriety by killing players.</div>
+                </div>
+
+            </div>
+
+            <!-- ===== ARENA TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'arena' && !$store.game.inCombat" x-data="arenaScreen()">
+                <div class="stats-header">
+                    <h2>Arena</h2>
+                </div>
+
+                <!-- Champion Banner -->
+                <template x-if="arenaChampion">
+                    <div class="arena-champion-banner">
+                        <span class="arena-champion-crown">&#x1F451;</span>
+                        <span class="arena-champion-title">Arena Champion</span>
+                        <span class="arena-champion-name" x-text="arenaChampion.character_name"></span>
+                        <span class="arena-rating" x-text="'Rating: ' + arenaChampion.rating"></span>
+                    </div>
+                </template>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Arena Rankings</span>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-primary btn-sm" @click="enterArena">Enter Arena</button>
+                        <button class="btn btn-ghost btn-sm" @click="refreshArena()">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="leaderboard-table">
+                    <template x-for="(entry, idx) in arenaEntries" :key="entry.character_name">
+                        <div class="leaderboard-row" :class="{ 'leaderboard-self': isArenaSelf(entry) }">
+                            <span class="leaderboard-rank" :class="arenaRankClass(idx)" x-text="'#' + (idx + 1)"></span>
+                            <span class="leaderboard-name" x-text="entry.character_name"></span>
+                            <span class="arena-rating" x-text="entry.rating"></span>
+                            <span class="leaderboard-level" x-text="'W:' + entry.wins + ' L:' + entry.losses"></span>
+                            <span class="leaderboard-score" x-text="entry.battles_today + '/5 today'"></span>
+                        </div>
+                    </template>
+                </div>
+                <div class="leaderboard-empty" x-show="arenaEntries.length === 0">No arena participants yet. Enter the Arena to register!</div>
+
+                <!-- Server options for arena -->
+                <div x-show="$store.game.serverScreen && ($store.game.serverScreen.startsWith('arena_')) && $store.game.options.length > 0" class="options-panel" style="margin-top: 1rem;">
+                    <template x-for="opt in $store.game.options" :key="opt.key">
+                        <button class="option-btn" :disabled="!opt.enabled" @click="$store.game.sendCommand('select', opt.key)" x-text="opt.label"></button>
+                    </template>
                 </div>
             </div>
 
@@ -1157,5 +1203,6 @@
 <script src="js/screens/town.js?v=6"></script>
 <script src="js/screens/dungeon.js?v=6"></script>
 <script src="js/screens/stats.js?v=6"></script>
+<script src="js/screens/arena.js?v=6"></script>
 </body>
 </html>

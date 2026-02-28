@@ -2,7 +2,7 @@
 document.addEventListener('alpine:init', () => {
     Alpine.store('game', {
         screen: 'auth',          // 'auth' | 'characters' | 'game'
-        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'town' | 'quests' | 'stats'
+        activeTab: 'hub',        // 'hub' | 'map' | 'village' | 'town' | 'quests' | 'stats' | 'arena'
         player: null,            // PlayerState from server
         combat: null,            // CombatView from server
         village: null,           // VillageView from server
@@ -24,6 +24,7 @@ document.addEventListener('alpine:init', () => {
         leaderboard: null,       // leaderboard entries from API
         leaderboardCategory: 'kills', // current leaderboard category
         mostWanted: null,        // most wanted monster entries from API
+        arena: null,             // arena leaderboard entries from API
 
         get inCombat() { return this.combat !== null; },
 
@@ -232,6 +233,12 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
+            // Arena screens
+            if (s === 'arena_main' || s === 'arena_challenge' || s === 'arena_confirm') {
+                this.activeTab = 'arena';
+                return;
+            }
+
             // Map screens
             if (s === 'hunt_location_select' || s === 'hunt_count_select' || s === 'hunt_tracking') {
                 this.activeTab = 'map';
@@ -323,6 +330,18 @@ document.addEventListener('alpine:init', () => {
                 this.mostWanted = data.entries || [];
             })
             .catch(() => { this.mostWanted = []; });
+        },
+
+        // Fetch arena leaderboard from REST API
+        fetchArena() {
+            fetch('/api/arena?limit=20', {
+                headers: Auth.getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.arena = data;
+            })
+            .catch(() => { this.arena = { entries: [], champion: null }; });
         },
 
         // Pick the most interesting message from a group as its header

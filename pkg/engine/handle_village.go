@@ -576,6 +576,15 @@ func (e *Engine) handleVillageCrafting(session *GameSession, cmd GameCommand) Ga
 	case "skill_scrolls":
 		session.State = StateVillageCraftScrolls
 		return e.handleVillageCraftScrolls(session, GameCommand{Type: "init"})
+	case "fortifications":
+		session.State = StateVillageFortifications
+		return e.handleVillageFortifications(session, GameCommand{Type: "init"})
+	case "training":
+		session.State = StateVillageTraining
+		return e.handleVillageTraining(session, GameCommand{Type: "init"})
+	case "healing":
+		session.State = StateVillageHealing
+		return e.handleVillageHealing(session, GameCommand{Type: "init"})
 	}
 
 	// Show crafting menu
@@ -602,6 +611,15 @@ func (e *Engine) handleVillageCrafting(session *GameSession, cmd GameCommand) Ga
 	}
 	if game.Contains(village.UnlockedCrafting, "skill_scrolls") {
 		options = append(options, Opt("skill_scrolls", "Skill Scroll Crafting"))
+	}
+	if game.Contains(village.UnlockedCrafting, "fortifications") {
+		options = append(options, Opt("fortifications", "Fortifications (Village Defense)"))
+	}
+	if game.Contains(village.UnlockedCrafting, "training") {
+		options = append(options, Opt("training", "Villager Training"))
+	}
+	if game.Contains(village.UnlockedCrafting, "healing") {
+		options = append(options, Opt("healing", "Healing Services"))
 	}
 	options = append(options, Opt("0", "Back"))
 
@@ -2494,4 +2512,308 @@ func (e *Engine) handleVillageHealGuard(session *GameSession, cmd GameCommand) G
 
 	session.State = StateVillageManageGuard
 	return e.handleVillageManageGuard(session, GameCommand{Type: "init"})
+}
+
+// handleVillageFortifications lets the player craft village defense items using resources.
+func (e *Engine) handleVillageFortifications(session *GameSession, cmd GameCommand) GameResponse {
+	village := session.SelectedVillage
+	player := session.Player
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateVillageCrafting
+		return e.handleVillageCrafting(session, GameCommand{Type: "init"})
+	}
+
+	type fortRecipe struct {
+		Name     string
+		Cost     map[string]int
+		Defense  int
+		HitPoint int
+	}
+	recipes := []fortRecipe{
+		{Name: "Wooden Barricade", Cost: map[string]int{"Lumber": 20}, Defense: 5, HitPoint: 50},
+		{Name: "Stone Wall", Cost: map[string]int{"Stone": 30, "Lumber": 10}, Defense: 15, HitPoint: 150},
+		{Name: "Guard Tower", Cost: map[string]int{"Stone": 20, "Lumber": 20, "Iron": 10}, Defense: 25, HitPoint: 200},
+	}
+
+	idx, err := strconv.Atoi(cmd.Value)
+	if err == nil && idx >= 1 && idx <= len(recipes) {
+		recipe := recipes[idx-1]
+		canBuild := true
+		for res, amount := range recipe.Cost {
+			r, exists := player.ResourceStorageMap[res]
+			if !exists || r.Stock < amount {
+				canBuild = false
+				break
+			}
+		}
+		if !canBuild {
+			msgs := []GameMessage{Msg(fmt.Sprintf("Not enough resources to build %s!", recipe.Name), "error")}
+			session.State = StateVillageFortifications
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_fortifications", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		for res, amount := range recipe.Cost {
+			r := player.ResourceStorageMap[res]
+			r.Stock -= amount
+			player.ResourceStorageMap[res] = r
+		}
+		village.Defenses = append(village.Defenses, models.Defense{
+			Name:    recipe.Name,
+			Level:   1,
+			Defense: recipe.Defense,
+			Built:   true,
+			Type:    "fortification",
+		})
+		village.DefenseLevel += recipe.Defense
+		e.saveVillage(session)
+		msgs := []GameMessage{
+			Msg(fmt.Sprintf("Built %s! (+%d defense, +%d HP)", recipe.Name, recipe.Defense, recipe.HitPoint), "system"),
+		}
+		session.State = StateVillageFortifications
+		return e.handleVillageFortifications(session, GameCommand{Type: "init"})
+		_ = msgs // messages shown via init re-render
+	}
+
+	// Show fortifications menu
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("FORTIFICATIONS - Village Defense Crafting", "system"),
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("Current Defense Level: %d", village.DefenseLevel), "system"),
+	}
+	options := []MenuOption{}
+	for i, recipe := range recipes {
+		costStr := ""
+		for res, amount := range recipe.Cost {
+			if costStr != "" {
+				costStr += ", "
+			}
+			costStr += fmt.Sprintf("%d %s", amount, res)
+		}
+		options = append(options, Opt(strconv.Itoa(i+1), fmt.Sprintf("%s (+%d DEF, +%d HP) [%s]", recipe.Name, recipe.Defense, recipe.HitPoint, costStr)))
+	}
+	options = append(options, Opt("0", "Back"))
+
+	session.State = StateVillageFortifications
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "village_fortifications", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+		Options:  options,
+	}
+}
+
+// handleVillageTraining lets the player spend resources to level up a villager.
+func (e *Engine) handleVillageTraining(session *GameSession, cmd GameCommand) GameResponse {
+	village := session.SelectedVillage
+	player := session.Player
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateVillageCrafting
+		return e.handleVillageCrafting(session, GameCommand{Type: "init"})
+	}
+
+	trainingCost := map[string]int{"Gold": 10, "Lumber": 5}
+
+	idx, err := strconv.Atoi(cmd.Value)
+	if err == nil && idx >= 1 && idx <= len(village.Villagers) {
+		canTrain := true
+		for res, amount := range trainingCost {
+			r, exists := player.ResourceStorageMap[res]
+			if !exists || r.Stock < amount {
+				canTrain = false
+				break
+			}
+		}
+		if !canTrain {
+			msgs := []GameMessage{Msg("Not enough resources to train! (10 Gold, 5 Lumber)", "error")}
+			session.State = StateVillageTraining
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_training", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		for res, amount := range trainingCost {
+			r := player.ResourceStorageMap[res]
+			r.Stock -= amount
+			player.ResourceStorageMap[res] = r
+		}
+		v := &village.Villagers[idx-1]
+		v.Level++
+		v.Efficiency++
+		e.saveVillage(session)
+		msgs := []GameMessage{
+			Msg(fmt.Sprintf("%s trained to Level %d! (Efficiency: %d)", v.Name, v.Level, v.Efficiency), "system"),
+		}
+		session.State = StateVillageTraining
+		resp := e.handleVillageTraining(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+	}
+
+	// Show training menu
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("VILLAGER TRAINING", "system"),
+		Msg("============================================================", "system"),
+		Msg("Cost per training: 10 Gold, 5 Lumber", "system"),
+		Msg("", "system"),
+	}
+	options := []MenuOption{}
+	for i, v := range village.Villagers {
+		options = append(options, Opt(strconv.Itoa(i+1), fmt.Sprintf("%s (Lv%d %s, Eff: %d)", v.Name, v.Level, v.Role, v.Efficiency)))
+	}
+	if len(village.Villagers) == 0 {
+		msgs = append(msgs, Msg("No villagers to train.", "system"))
+	}
+	options = append(options, Opt("0", "Back"))
+
+	session.State = StateVillageTraining
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "village_training", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+		Options:  options,
+	}
+}
+
+// handleVillageHealing lets the player spend resources to restore HP/MP/SP.
+func (e *Engine) handleVillageHealing(session *GameSession, cmd GameCommand) GameResponse {
+	village := session.SelectedVillage
+	player := session.Player
+
+	if cmd.Value == "0" || cmd.Value == "back" {
+		session.State = StateVillageCrafting
+		return e.handleVillageCrafting(session, GameCommand{Type: "init"})
+	}
+
+	switch cmd.Value {
+	case "1": // Restore HP
+		cost := 5
+		r, exists := player.ResourceStorageMap["Gold"]
+		if !exists || r.Stock < cost {
+			msgs := []GameMessage{Msg("Not enough Gold! (5 required)", "error")}
+			session.State = StateVillageHealing
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_healing", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		r.Stock -= cost
+		player.ResourceStorageMap["Gold"] = r
+		player.HitpointsRemaining = player.HitpointsTotal
+		e.saveVillage(session)
+		msgs := []GameMessage{Msg(fmt.Sprintf("HP fully restored! (%d/%d)", player.HitpointsRemaining, player.HitpointsTotal), "heal")}
+		session.State = StateVillageHealing
+		resp := e.handleVillageHealing(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+
+	case "2": // Restore MP
+		cost := 5
+		r, exists := player.ResourceStorageMap["Gold"]
+		if !exists || r.Stock < cost {
+			msgs := []GameMessage{Msg("Not enough Gold! (5 required)", "error")}
+			session.State = StateVillageHealing
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_healing", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		r.Stock -= cost
+		player.ResourceStorageMap["Gold"] = r
+		player.ManaRemaining = player.ManaTotal
+		e.saveVillage(session)
+		msgs := []GameMessage{Msg(fmt.Sprintf("MP fully restored! (%d/%d)", player.ManaRemaining, player.ManaTotal), "heal")}
+		session.State = StateVillageHealing
+		resp := e.handleVillageHealing(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+
+	case "3": // Restore SP
+		cost := 5
+		r, exists := player.ResourceStorageMap["Gold"]
+		if !exists || r.Stock < cost {
+			msgs := []GameMessage{Msg("Not enough Gold! (5 required)", "error")}
+			session.State = StateVillageHealing
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_healing", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		r.Stock -= cost
+		player.ResourceStorageMap["Gold"] = r
+		player.StaminaRemaining = player.StaminaTotal
+		e.saveVillage(session)
+		msgs := []GameMessage{Msg(fmt.Sprintf("SP fully restored! (%d/%d)", player.StaminaRemaining, player.StaminaTotal), "heal")}
+		session.State = StateVillageHealing
+		resp := e.handleVillageHealing(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+
+	case "4": // Restore All
+		cost := 12
+		r, exists := player.ResourceStorageMap["Gold"]
+		if !exists || r.Stock < cost {
+			msgs := []GameMessage{Msg("Not enough Gold! (12 required)", "error")}
+			session.State = StateVillageHealing
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "village_healing", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+				Options:  []MenuOption{Opt("back", "Back")},
+			}
+		}
+		r.Stock -= cost
+		player.ResourceStorageMap["Gold"] = r
+		player.HitpointsRemaining = player.HitpointsTotal
+		player.ManaRemaining = player.ManaTotal
+		player.StaminaRemaining = player.StaminaTotal
+		e.saveVillage(session)
+		msgs := []GameMessage{Msg("All resources fully restored!", "heal")}
+		session.State = StateVillageHealing
+		resp := e.handleVillageHealing(session, GameCommand{Type: "init"})
+		resp.Messages = append(msgs, resp.Messages...)
+		return resp
+	}
+
+	// Show healing menu
+	msgs := []GameMessage{
+		Msg("============================================================", "system"),
+		Msg("HEALING SERVICES", "system"),
+		Msg("============================================================", "system"),
+		Msg(fmt.Sprintf("HP: %d/%d | MP: %d/%d | SP: %d/%d",
+			player.HitpointsRemaining, player.HitpointsTotal,
+			player.ManaRemaining, player.ManaTotal,
+			player.StaminaRemaining, player.StaminaTotal), "system"),
+		Msg("", "system"),
+	}
+	options := []MenuOption{
+		Opt("1", fmt.Sprintf("Restore HP (5 Gold) [%d/%d]", player.HitpointsRemaining, player.HitpointsTotal)),
+		Opt("2", fmt.Sprintf("Restore MP (5 Gold) [%d/%d]", player.ManaRemaining, player.ManaTotal)),
+		Opt("3", fmt.Sprintf("Restore SP (5 Gold) [%d/%d]", player.StaminaRemaining, player.StaminaTotal)),
+		Opt("4", "Restore All (12 Gold)"),
+		Opt("0", "Back"),
+	}
+
+	session.State = StateVillageHealing
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "village_healing", Player: MakePlayerState(player), Village: MakeVillageView(village)},
+		Options:  options,
+	}
 }

@@ -9,6 +9,7 @@ function navbar() {
             { id: 'dungeon', label: 'Dungeon', icon: '' },
             { id: 'quests', label: 'Quests', icon: '' },
             { id: 'stats', label: 'Stats', icon: '' },
+            { id: 'arena', label: 'Arena', icon: '' },
         ],
 
         switchTab(tabId) {

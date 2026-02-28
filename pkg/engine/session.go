@@ -55,6 +55,9 @@ const (
 	StateVillageGiveItem         = "village_give_item"
 	StateVillageTakeItem         = "village_take_item"
 	StateVillageHealGuard        = "village_heal_guard"
+	StateVillageFortifications   = "village_fortifications"
+	StateVillageTraining         = "village_training"
+	StateVillageHealing          = "village_healing"
 
 	StateGuideMain         = "guide_main"
 	StateGuideCombat       = "guide_combat"
@@ -95,6 +98,11 @@ const (
 	// Bounty states
 	StateMostWantedBoard = "most_wanted_board"
 	StateMostWantedHunt  = "most_wanted_hunt"
+
+	// Arena states
+	StateArenaMain      = "arena_main"
+	StateArenaChallenge = "arena_challenge"
+	StateArenaConfirm   = "arena_confirm"
 
 	// Dungeon states
 	StateDungeonSelect    = "dungeon_select"
@@ -138,6 +146,11 @@ type CombatContext struct {
 	PvPTargetGuest      *models.InnGuest
 	IsMayorChallenge    bool
 	MayorChallengePhase int // 0=guards, 1=monsters, 2=mayor
+
+	// Arena fields
+	IsArena              bool
+	ArenaTargetAccountID int64
+	ArenaTargetCharName  string
 }
 
 // GameSession represents a connected player's session.
@@ -166,4 +179,8 @@ type GameSession struct {
 	// Bounty context
 	SelectedBountyLocName string
 	SelectedBountyMobIdx  int
+
+	// Arena context
+	ArenaTargetAccountID int64
+	ArenaTargetCharName  string
 }

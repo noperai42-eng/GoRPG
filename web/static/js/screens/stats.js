@@ -107,7 +107,7 @@ function statsScreen() {
         },
 
         totalKills(entry) {
-            return (entry.player_kills || 0) + (entry.monster_kills || 0);
+            return entry.player_kills || 0;
         }
     };
 }
