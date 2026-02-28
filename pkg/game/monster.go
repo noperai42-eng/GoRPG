@@ -456,6 +456,12 @@ func GenerateBestMonster(game *models.GameState, levelMax int, rankMax int) mode
 	mob.HitpointsTotal = mob.HitpointsNatural + mob.StatsMod.HitPointMod
 	mob.HitpointsRemaining = mob.HitpointsTotal
 
+	// Enforce minimum HP of monster's level
+	if mob.HitpointsTotal < mob.Level {
+		mob.HitpointsTotal = mob.Level
+		mob.HitpointsRemaining = mob.Level
+	}
+
 	return mob
 }
 

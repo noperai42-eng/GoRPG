@@ -15,6 +15,11 @@ function combatScreen() {
             return this.c.monster_name.substring(0, 2).toUpperCase();
         },
 
+        get monsterRarityClass() {
+            if (!this.c || !this.c.monster_rarity) return '';
+            return 'monster-rarity-' + this.c.monster_rarity.toLowerCase();
+        },
+
         get monsterPanelClass() {
             if (!this.c) return '';
             if (this.c.monster_is_boss) return 'boss';

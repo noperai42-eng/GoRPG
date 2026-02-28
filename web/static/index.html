@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="css/village.css?v=6">
     <link rel="stylesheet" href="css/quests.css?v=6">
     <link rel="stylesheet" href="css/town.css?v=6">
+    <link rel="stylesheet" href="css/dungeon.css?v=6">
     <link rel="stylesheet" href="css/stats.css?v=6">
 </head>
 <body x-data x-cloak>
@@ -691,6 +692,62 @@
                 </div>
             </div>
 
+            <!-- ===== DUNGEON TAB ===== -->
+            <div class="screen-container" x-show="$store.game.activeTab === 'dungeon' && !$store.game.inCombat" x-data="dungeonScreen()">
+                <!-- No active dungeon -->
+                <div x-show="!hasActiveDungeon && !isDungeonScreen" style="text-align: center; padding: 2rem;">
+                    <h2 style="color: var(--text-secondary); margin-bottom: 1rem;">Dungeon</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem;">Explore procedurally generated dungeons with monsters, traps, treasures, and bosses.</p>
+                    <button class="btn btn-primary" @click="enterDungeon">Enter Dungeon</button>
+                </div>
+
+                <!-- Dungeon active -->
+                <div x-show="hasActiveDungeon || isDungeonScreen">
+                    <div class="dungeon-header">
+                        <h2 x-text="d ? floorLabel : 'Dungeon'"></h2>
+                    </div>
+
+                    <!-- Progress -->
+                    <div class="dungeon-progress" x-show="floor">
+                        <div class="dungeon-progress-bar">
+                            <div class="dungeon-progress-fill" :style="'width:' + (totalRooms > 0 ? (roomsCleared / totalRooms * 100) : 0) + '%'"></div>
+                        </div>
+                        <span class="dungeon-progress-text" x-text="roomsCleared + '/' + totalRooms + ' rooms'"></span>
+                        <span class="dungeon-progress-text" x-show="floor && floor.boss_floor" style="color: var(--accent); font-weight: 600;">BOSS FLOOR</span>
+                    </div>
+
+                    <!-- Grid -->
+                    <div x-show="grid && isGridView" class="dungeon-grid-wrapper">
+                        <div class="dungeon-grid" :style="'grid-template-columns: repeat(' + (floor ? floor.grid_w : 1) + ', 1fr)'">
+                            <template x-for="(row, y) in (grid || [])" :key="y">
+                                <template x-for="(tile, x) in row" :key="x">
+                                    <div class="dungeon-tile" :class="tileClass(tile, x, y)" x-text="tileChar(tile, x, y)"></div>
+                                </template>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="dungeon-legend" x-show="grid && isGridView">
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-player">@</span> You</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room">!</span> Room</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-room-cleared">.</span> Cleared</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-exit">E</span> Exit</div>
+                        <div class="dungeon-legend-item"><span class="dungeon-legend-swatch tile-fog"></span> Fog</div>
+                    </div>
+
+                    <!-- Movement hint -->
+                    <div class="dungeon-move-hint" x-show="isGridView">Use WASD or Arrow Keys to move</div>
+
+                    <!-- Server options -->
+                    <div x-show="isDungeonScreen && g.options.length > 0" class="options-panel" style="margin-top: 0.5rem;">
+                        <template x-for="opt in g.options" :key="opt.key">
+                            <button class="option-btn" :disabled="!opt.enabled" @click="selectOption(opt.key)" x-text="opt.label"></button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
             <!-- ===== QUESTS TAB ===== -->
             <div class="screen-container" x-show="$store.game.activeTab === 'quests' && !$store.game.inCombat" x-data="questsScreen()">
                 <div class="quests-header">
@@ -862,7 +919,7 @@
                                 <div class="combatant-header">
                                     <div class="combatant-avatar" :class="avatarClass" x-text="monsterInitials"></div>
                                     <div class="combatant-info">
-                                        <div class="combatant-name" x-text="c.monster_name"></div>
+                                        <div class="combatant-name" :class="monsterRarityClass" x-text="(c.monster_rarity && c.monster_rarity !== 'Common' ? c.monster_rarity + ' ' : '') + c.monster_name"></div>
                                         <div class="combatant-level" x-text="'Level ' + c.monster_level + ' ' + c.monster_type"></div>
                                         <div class="combatant-boss-tag" x-show="c.monster_is_boss">&#x2655; BOSS</div>
                                         <div class="combatant-guardian-tag" x-show="c.monster_is_guardian" x-text="'\u2726 Guardian: ' + (c.guarded_skill_name || '')"></div>
@@ -1069,6 +1126,7 @@
 <script src="js/screens/village.js?v=6"></script>
 <script src="js/screens/quests.js?v=6"></script>
 <script src="js/screens/town.js?v=6"></script>
+<script src="js/screens/dungeon.js?v=6"></script>
 <script src="js/screens/stats.js?v=6"></script>
 </body>
 </html>

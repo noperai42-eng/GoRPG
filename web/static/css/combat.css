@@ -84,6 +84,11 @@
     font-size: 0.95rem;
 }
 
+.combatant-name.monster-rarity-uncommon { color: var(--rarity-2); }
+.combatant-name.monster-rarity-rare { color: var(--rarity-3); }
+.combatant-name.monster-rarity-epic { color: var(--rarity-4); }
+.combatant-name.monster-rarity-legendary { color: var(--rarity-5); }
+
 .combatant-level {
     font-size: 0.75rem;
     color: var(--text-secondary);

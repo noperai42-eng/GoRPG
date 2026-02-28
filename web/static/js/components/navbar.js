@@ -6,6 +6,7 @@ function navbar() {
             { id: 'map', label: 'Map', icon: '' },
             { id: 'village', label: 'Village', icon: '' },
             { id: 'town', label: 'Town', icon: '' },
+            { id: 'dungeon', label: 'Dungeon', icon: '' },
             { id: 'quests', label: 'Quests', icon: '' },
             { id: 'stats', label: 'Stats', icon: '' },
         ],

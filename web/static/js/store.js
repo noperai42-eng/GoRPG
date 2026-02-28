@@ -245,7 +245,7 @@ document.addEventListener('alpine:init', () => {
 
             // Dungeon screens
             if (s === 'dungeon_select' || s === 'dungeon_floor_map' || s === 'dungeon_room' || s === 'dungeon_grid_move') {
-                this.activeTab = 'map';
+                this.activeTab = 'dungeon';
                 return;
             }
 
