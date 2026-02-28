@@ -373,7 +373,18 @@ type CharacterStats struct {
 	RoomsExplored   int            `json:"rooms_explored"`
 	TreasuresFound  int            `json:"treasures_found"`
 	TrapsTriggered  int            `json:"traps_triggered"`
-	HiddenChests    int            `json:"hidden_chests_found"`
+	HiddenChests      int            `json:"hidden_chests_found"`
+	ArenaRating       int            `json:"arena_rating"`
+	ArenaWins         int            `json:"arena_wins"`
+	ArenaLosses       int            `json:"arena_losses"`
+	ArenaBattlesToday int            `json:"arena_battles_today"`
+	ArenaLastReset    int64          `json:"arena_last_reset"`
+}
+
+// ArenaChallenge holds the target of an arena challenge.
+type ArenaChallenge struct {
+	TargetAccountID int64  `json:"target_account_id"`
+	TargetCharName  string `json:"target_char_name"`
 }
 
 // GridPosition represents a 2D coordinate on the dungeon grid.

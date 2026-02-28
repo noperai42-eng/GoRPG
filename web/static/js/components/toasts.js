@@ -5,7 +5,7 @@ function activityPanel() {
         categoryIcon(cat) {
             const icons = { combat: '\u2694', loot: '\uD83D\uDCE6', levelup: '\u2B06', heal: '\uD83D\uDC9A',
                 damage: '\uD83D\uDCA5', buff: '\u2728', debuff: '\uD83D\uDD3B', narrative: '\uD83D\uDCDC',
-                system: '\u2699', error: '\u26A0' };
+                system: '\u2699', error: '\u26A0', broadcast: '\uD83D\uDCE2' };
             return icons[cat] || '\u2022';
         },
         relativeTime(ts) {

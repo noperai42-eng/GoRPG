@@ -185,3 +185,41 @@
     border: 1px solid rgba(255, 65, 54, 0.5);
     text-shadow: 0 0 6px rgba(255, 65, 54, 0.4);
 }
+
+/* ===== Arena ===== */
+.arena-champion-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 215, 0, 0.05));
+    border: 1px solid rgba(255, 215, 0, 0.4);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.arena-champion-crown {
+    font-size: 1.4rem;
+}
+
+.arena-champion-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #ffd700;
+}
+
+.arena-champion-name {
+    font-weight: 700;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.arena-rating {
+    font-weight: 700;
+    color: #ffd700;
+    min-width: 3rem;
+    text-align: right;
+    font-size: 0.85rem;
+}

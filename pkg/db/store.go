@@ -114,6 +114,18 @@ func (s *Store) createTables() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(account_id, character_name)
 		)`,
+		`CREATE TABLE IF NOT EXISTS arena (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			character_name TEXT NOT NULL,
+			rating INTEGER DEFAULT 1000,
+			wins INTEGER DEFAULT 0,
+			losses INTEGER DEFAULT 0,
+			battles_today INTEGER DEFAULT 0,
+			last_reset TEXT DEFAULT '',
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(account_id, character_name)
+		)`,
 	}
 
 	for _, stmt := range statements {
@@ -641,4 +653,100 @@ func (s *Store) GetLeaderboard(category string, limit int) ([]LeaderboardEntry, 
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Arena methods
+// ---------------------------------------------------------------------------
+
+// ArenaEntry represents a single arena leaderboard row.
+type ArenaEntry struct {
+	AccountID     int64  `json:"account_id"`
+	CharacterName string `json:"character_name"`
+	Rating        int    `json:"rating"`
+	Wins          int    `json:"wins"`
+	Losses        int    `json:"losses"`
+	BattlesToday  int    `json:"battles_today"`
+	LastReset     string `json:"last_reset"`
+}
+
+// GetArenaEntry returns a player's arena row, or nil if not registered.
+func (s *Store) GetArenaEntry(accountID int64, charName string) (*ArenaEntry, error) {
+	var e ArenaEntry
+	err := s.db.QueryRow(
+		"SELECT account_id, character_name, rating, wins, losses, battles_today, last_reset FROM arena WHERE account_id = ? AND character_name = ?",
+		accountID, charName,
+	).Scan(&e.AccountID, &e.CharacterName, &e.Rating, &e.Wins, &e.Losses, &e.BattlesToday, &e.LastReset)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get arena entry: %w", err)
+	}
+	return &e, nil
+}
+
+// UpsertArenaEntry inserts or updates an arena row.
+func (s *Store) UpsertArenaEntry(entry ArenaEntry) error {
+	_, err := s.db.Exec(
+		`INSERT INTO arena (account_id, character_name, rating, wins, losses, battles_today, last_reset, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(account_id, character_name)
+		 DO UPDATE SET rating=?, wins=?, losses=?, battles_today=?, last_reset=?, updated_at=CURRENT_TIMESTAMP`,
+		entry.AccountID, entry.CharacterName, entry.Rating, entry.Wins, entry.Losses, entry.BattlesToday, entry.LastReset,
+		entry.Rating, entry.Wins, entry.Losses, entry.BattlesToday, entry.LastReset,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert arena entry: %w", err)
+	}
+	return nil
+}
+
+// GetArenaLeaderboard returns the top arena entries ordered by rating descending.
+func (s *Store) GetArenaLeaderboard(limit int) ([]ArenaEntry, error) {
+	rows, err := s.db.Query(
+		"SELECT account_id, character_name, rating, wins, losses, battles_today, last_reset FROM arena ORDER BY rating DESC LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query arena leaderboard: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []ArenaEntry
+	for rows.Next() {
+		var e ArenaEntry
+		if err := rows.Scan(&e.AccountID, &e.CharacterName, &e.Rating, &e.Wins, &e.Losses, &e.BattlesToday, &e.LastReset); err != nil {
+			return nil, fmt.Errorf("failed to scan arena entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// ResetArenaBattles resets battles_today for all entries whose last_reset != the given date.
+func (s *Store) ResetArenaBattles(resetDate string) error {
+	_, err := s.db.Exec(
+		"UPDATE arena SET battles_today = 0, last_reset = ? WHERE last_reset != ?",
+		resetDate, resetDate,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reset arena battles: %w", err)
+	}
+	return nil
+}
+
+// GetArenaChampion returns the highest-rated arena entry, or nil if no entries exist.
+func (s *Store) GetArenaChampion() (*ArenaEntry, error) {
+	var e ArenaEntry
+	err := s.db.QueryRow(
+		"SELECT account_id, character_name, rating, wins, losses, battles_today, last_reset FROM arena ORDER BY rating DESC LIMIT 1",
+	).Scan(&e.AccountID, &e.CharacterName, &e.Rating, &e.Wins, &e.Losses, &e.BattlesToday, &e.LastReset)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get arena champion: %w", err)
+	}
+	return &e, nil
 }

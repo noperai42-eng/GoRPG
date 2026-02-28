@@ -16,23 +16,27 @@ import (
 
 // Engine manages game sessions and dispatches commands to handlers.
 type Engine struct {
-	sessions map[string]*GameSession
-	store    *db.Store
-	mu       sync.RWMutex
+	sessions    map[string]*GameSession
+	store       *db.Store
+	mu          sync.RWMutex
+	subscribers map[string]func(GameResponse) // keyed by sessionID
+	subMu       sync.RWMutex                  // separate mutex to avoid deadlock
 }
 
 // NewEngine creates a new game engine (file-based persistence only).
 func NewEngine() *Engine {
 	return &Engine{
-		sessions: make(map[string]*GameSession),
+		sessions:    make(map[string]*GameSession),
+		subscribers: make(map[string]func(GameResponse)),
 	}
 }
 
 // NewEngineWithStore creates a game engine backed by a SQLite store.
 func NewEngineWithStore(store *db.Store) *Engine {
 	return &Engine{
-		sessions: make(map[string]*GameSession),
-		store:    store,
+		sessions:    make(map[string]*GameSession),
+		store:       store,
+		subscribers: make(map[string]func(GameResponse)),
 	}
 }
 
@@ -641,6 +645,32 @@ func (e *Engine) GetMostWanted(limit int) []models.MostWantedEntry {
 		return nil
 	}
 	return game.GetMostWanted(locations, limit)
+}
+
+// Subscribe registers a callback to receive broadcast messages for the given session.
+func (e *Engine) Subscribe(sessionID string, callback func(GameResponse)) {
+	e.subMu.Lock()
+	e.subscribers[sessionID] = callback
+	e.subMu.Unlock()
+}
+
+// Unsubscribe removes a broadcast callback for the given session.
+func (e *Engine) Unsubscribe(sessionID string) {
+	e.subMu.Lock()
+	delete(e.subscribers, sessionID)
+	e.subMu.Unlock()
+}
+
+// Broadcast sends a response to all subscribers except the excluded session.
+func (e *Engine) Broadcast(excludeSessionID string, resp GameResponse) {
+	e.subMu.RLock()
+	defer e.subMu.RUnlock()
+	for id, cb := range e.subscribers {
+		if id == excludeSessionID {
+			continue
+		}
+		go cb(resp)
+	}
 }
 
 // RemoveSession removes a session from the engine.

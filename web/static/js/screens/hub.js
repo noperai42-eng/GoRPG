@@ -68,7 +68,8 @@ function hubScreen() {
                 system: '\u2699', combat: '\u2694', damage: '\uD83D\uDCA5',
                 heal: '\u2764', loot: '\uD83C\uDF81', buff: '\u2B06',
                 debuff: '\u2B07', narrative: '\uD83D\uDCDC', error: '\u26A0',
-                levelup: '\u2B50'
+                levelup: '\u2B50',
+                broadcast: '\uD83D\uDCE2'
             };
             return icons[category] || '\u2699';
         },

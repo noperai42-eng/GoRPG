@@ -858,6 +858,17 @@
                         </div>
                     </template>
                     <div x-show="!stats" style="text-align: center; padding: 2rem; color: var(--text-muted);">No stats available yet. Go fight some monsters!</div>
+
+                    <!-- Online Players -->
+                    <div class="card" style="margin-top: 0.75rem;" x-show="$store.game.onlinePlayers.length > 0">
+                        <div class="section-header">Online Players</div>
+                        <template x-for="op in $store.game.onlinePlayers" :key="op.name">
+                            <div class="stat-row">
+                                <span class="stat-label" x-text="op.name + ' (Lv ' + op.level + ')'"></span>
+                                <span class="stat-value" x-text="op.activity"></span>
+                            </div>
+                        </template>
+                    </div>
                 </div>
 
                 <!-- Leaderboard -->

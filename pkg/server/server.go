@@ -61,6 +61,7 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	s.mux.HandleFunc("/api/version", s.corsWrapper(s.handleVersion))
 	s.mux.HandleFunc("/api/leaderboard", s.corsWrapper(s.handleLeaderboard))
 	s.mux.HandleFunc("/api/mostwanted", s.corsWrapper(s.handleMostWanted))
+	s.mux.HandleFunc("/api/arena", s.corsWrapper(s.handleArena))
 
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws/game", s.handleWebSocket)
@@ -74,15 +75,27 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	s.mux.Handle("/", noCacheStaticHandler(fs))
 
 	// Evolution ticker — monsters fight each other every 60 seconds.
+	// Also resets arena daily battles when the date changes.
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
+		lastArenaReset := game.GetArenaResetDate()
 		for range ticker.C {
 			result := s.engine.ProcessEvolutionTick()
 			if result != nil {
 				for _, evt := range result.Events {
 					log.Printf("[Evolution] %s at %s: %s", evt.EventType, evt.LocationName, evt.Details)
 				}
+			}
+			// Arena daily reset check
+			today := game.GetArenaResetDate()
+			if today != lastArenaReset {
+				if err := store.ResetArenaBattles(today); err != nil {
+					log.Printf("[Arena] Failed to reset daily battles: %v", err)
+				} else {
+					log.Printf("[Arena] Daily battles reset for %s", today)
+				}
+				lastArenaReset = today
 			}
 		}
 	}()
@@ -317,6 +330,42 @@ func (s *Server) handleMostWanted(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleArena handles GET /api/arena?limit=20.
+func (s *Server) handleArena(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &limit); n != 1 || err != nil || limit < 1 {
+			limit = 20
+		}
+		if limit > 100 {
+			limit = 100
+		}
+	}
+
+	entries, err := s.store.GetArenaLeaderboard(limit)
+	if err != nil {
+		log.Printf("arena leaderboard error: %v", err)
+		jsonError(w, http.StatusInternalServerError, "failed to get arena leaderboard")
+		return
+	}
+	if entries == nil {
+		entries = []db.ArenaEntry{}
+	}
+
+	champion, _ := s.store.GetArenaChampion()
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"entries":  entries,
+		"champion": champion,
+	})
+}
+
 // handleCharacters routes GET and POST /api/characters to the correct handler.
 func (s *Server) handleCharacters(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -448,6 +497,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.WriteJSON(v)
 	}
 
+	// Register broadcast subscriber so this client receives server-wide events.
+	s.engine.Subscribe(sessionID, func(resp engine.GameResponse) {
+		writeJSON(resp)
+	})
+
 	// Send initial "init" command response so the client gets the main menu.
 	initResp := s.engine.ProcessCommand(sessionID, engine.GameCommand{Type: "init", Value: ""})
 	if err := writeJSON(initResp); err != nil {
@@ -571,8 +625,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Cleanup: stop ping goroutine, save session, remove it, close connection.
+	// Cleanup: stop ping goroutine, unsubscribe, save session, remove it, close connection.
 	close(done)
+
+	s.engine.Unsubscribe(sessionID)
 
 	if err := s.engine.SaveSession(sessionID); err != nil {
 		log.Printf("failed to save session for %s: %v", username, err)

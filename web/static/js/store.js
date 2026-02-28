@@ -74,6 +74,29 @@ document.addEventListener('alpine:init', () => {
             }
             if (isPresencePush) return;
 
+            // Handle broadcast messages (login, guardian defeat, etc.)
+            if (resp.type === 'broadcast') {
+                if (resp.messages && resp.messages.length > 0) {
+                    const batchMsgs = resp.messages
+                        .filter(m => m.text && m.text.trim())
+                        .map(m => ({ text: m.text, category: m.category || 'broadcast' }));
+                    if (batchMsgs.length > 0) {
+                        const gid = ++this._groupId;
+                        this.recentMessages.push({
+                            id: gid, timestamp: Date.now(), messages: batchMsgs,
+                            collapsed: false, isNew: true
+                        });
+                        setTimeout(() => {
+                            const g = this.recentMessages.find(g => g.id === gid);
+                            if (g) g.isNew = false;
+                        }, 4000);
+                        if (this.recentMessages.length > 15)
+                            this.recentMessages = this.recentMessages.slice(-15);
+                    }
+                }
+                return;
+            }
+
             // Update player state
             if (resp.state) {
                 if (resp.state.player) {

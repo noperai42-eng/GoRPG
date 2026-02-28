@@ -1114,6 +1114,12 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		player.KnownLocations = append(player.KnownLocations, locName)
 		msgs = append(msgs, Msg(fmt.Sprintf("The guardian has been slain! %s is now unlocked!", locName), "narrative"))
 
+		e.Broadcast(session.ID, GameResponse{
+			Type:     "broadcast",
+			Messages: []GameMessage{Msg(fmt.Sprintf("%s has defeated the guardian of %s!", player.Name, locName), "narrative")},
+			State:    &StateData{Screen: "guardian_defeated"},
+		})
+
 		session.GameState.CharactersMap[player.Name] = *player
 		game.WriteGameStateToFile(*session.GameState, session.SaveFile)
 

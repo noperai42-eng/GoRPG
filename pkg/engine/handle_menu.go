@@ -48,6 +48,11 @@ func (e *Engine) handleInit(session *GameSession) GameResponse {
 			break
 		}
 		session.State = StateMainMenu
+		e.Broadcast(session.ID, GameResponse{
+			Type:     "broadcast",
+			Messages: []GameMessage{Msg(fmt.Sprintf("%s has entered the game! (Level %d)", session.Player.Name, session.Player.Level), "system")},
+			State:    &StateData{Screen: "player_joined"},
+		})
 		return BuildMainMenuResponse(session)
 	}
 
@@ -96,6 +101,11 @@ func (e *Engine) handleCharacterSelect(session *GameSession, cmd GameCommand) Ga
 	session.Player = &char
 
 	session.State = StateMainMenu
+	e.Broadcast(session.ID, GameResponse{
+		Type:     "broadcast",
+		Messages: []GameMessage{Msg(fmt.Sprintf("%s has entered the game! (Level %d)", session.Player.Name, session.Player.Level), "system")},
+		State:    &StateData{Screen: "player_joined"},
+	})
 	return BuildMainMenuResponse(session)
 }
 

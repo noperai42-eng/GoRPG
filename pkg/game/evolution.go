@@ -261,8 +261,7 @@ func GetMostWanted(locations map[string]models.Location, limit int) []models.Mos
 
 	for _, loc := range locations {
 		for idx, mob := range loc.Monsters {
-			totalKills := mob.PlayerKills + mob.MonsterKills
-			if totalKills > 0 {
+			if mob.PlayerKills > 0 {
 				entries = append(entries, models.MostWantedEntry{
 					MonsterID:    mob.ID,
 					Name:         mob.Name,
@@ -280,11 +279,9 @@ func GetMostWanted(locations map[string]models.Location, limit int) []models.Mos
 		}
 	}
 
-	// Sort by total kills descending
+	// Sort by player kills descending (only player/guard/NPC kills count for Most Wanted)
 	sort.Slice(entries, func(i, j int) bool {
-		totalI := entries[i].PlayerKills + entries[i].MonsterKills
-		totalJ := entries[j].PlayerKills + entries[j].MonsterKills
-		return totalI > totalJ
+		return entries[i].PlayerKills > entries[j].PlayerKills
 	})
 
 	if limit > 0 && len(entries) > limit {
