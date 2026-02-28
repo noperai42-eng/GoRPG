@@ -233,6 +233,19 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		case "11":
 			return e.handleMainMenu(session, cmd)
 		}
+		// Direct arena challenge from leaderboard click.
+		// Format: arena_challenge:<accountID>:<charName>
+		if cmd.Type == "select" && strings.HasPrefix(cmd.Value, "arena_challenge:") {
+			parts := strings.SplitN(cmd.Value, ":", 3)
+			if len(parts) == 3 {
+				if session.SelectedVillage != nil {
+					e.saveVillage(session)
+					session.SelectedVillage = nil
+				}
+				session.SelectedTown = nil
+				return e.handleArenaDirectChallenge(session, parts[1], parts[2])
+			}
+		}
 	}
 
 	switch session.State {
@@ -477,9 +490,11 @@ func (e *Engine) saveSessionToDB(session *GameSession) error {
 		}
 	}
 
-	// Update leaderboard.
+	// Update leaderboard (always attempt even if earlier saves fail).
 	if session.Player != nil {
-		e.store.UpdateLeaderboard(session.AccountID, session.Player.Name, session.Player.Stats, session.Player.Level)
+		if err := e.store.UpdateLeaderboard(session.AccountID, session.Player.Name, session.Player.Stats, session.Player.Level); err != nil {
+			fmt.Printf("[Leaderboard] Failed to update leaderboard for %s: %v\n", session.Player.Name, err)
+		}
 	}
 
 	// Save villages.

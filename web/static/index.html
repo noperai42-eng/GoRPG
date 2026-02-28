@@ -946,6 +946,12 @@
                             <span class="arena-rating" x-text="entry.rating"></span>
                             <span class="leaderboard-level" x-text="'W:' + entry.wins + ' L:' + entry.losses"></span>
                             <span class="leaderboard-score" x-text="entry.battles_today + '/5 today'"></span>
+                            <button class="btn btn-sm btn-primary"
+                                    x-show="!isArenaSelf(entry)"
+                                    @click="challengePlayer(entry)"
+                                    style="margin-left: auto; padding: 0.15rem 0.5rem; font-size: 0.75rem;">
+                                Fight
+                            </button>
                         </div>
                     </template>
                 </div>

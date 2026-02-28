@@ -47,6 +47,8 @@ func (e *Engine) handleInit(session *GameSession) GameResponse {
 			session.Player = &c
 			break
 		}
+		// Ensure leaderboard entry exists for this character.
+		e.saveSession(session)
 		session.State = StateMainMenu
 		e.Broadcast(session.ID, GameResponse{
 			Type:     "broadcast",
@@ -100,6 +102,8 @@ func (e *Engine) handleCharacterSelect(session *GameSession, cmd GameCommand) Ga
 	gs.CharactersMap[char.Name] = char
 	session.Player = &char
 
+	// Ensure leaderboard entry exists for this character.
+	e.saveSession(session)
 	session.State = StateMainMenu
 	e.Broadcast(session.ID, GameResponse{
 		Type:     "broadcast",
@@ -138,8 +142,8 @@ func (e *Engine) handleCharacterCreate(session *GameSession, cmd GameCommand) Ga
 	gs.CharactersMap[player.Name] = player
 	session.Player = &player
 
-	// Save after creation
-	game.WriteGameStateToFile(*gs, session.SaveFile)
+	// Save after creation (uses DB for DB sessions, file for local sessions).
+	e.saveSession(session)
 
 	session.State = StateMainMenu
 	resp := BuildMainMenuResponse(session)
@@ -1536,6 +1540,8 @@ func (e *Engine) handleLoadSaveCharSelect(session *GameSession, cmd GameCommand)
 	gs.CharactersMap[char.Name] = char
 	session.Player = &char
 
+	// Ensure leaderboard entry exists for this character.
+	e.saveSession(session)
 	session.State = StateMainMenu
 	resp := BuildMainMenuResponse(session)
 	resp.Messages = append([]GameMessage{

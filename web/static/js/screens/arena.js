@@ -37,6 +37,10 @@ function arenaScreen() {
 
         enterArena() {
             this.g.sendCommand('select', '14');
+        },
+
+        challengePlayer(entry) {
+            this.g.sendCommand('select', 'arena_challenge:' + entry.account_id + ':' + entry.character_name);
         }
     };
 }

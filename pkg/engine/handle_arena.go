@@ -350,6 +350,104 @@ func (e *Engine) resolveArenaLoss(session *GameSession, msgs []GameMessage) Game
 	}
 }
 
+// handleArenaDirectChallenge handles a direct arena challenge from the leaderboard click.
+func (e *Engine) handleArenaDirectChallenge(session *GameSession, accountIDStr, charName string) GameResponse {
+	player := session.Player
+	msgs := []GameMessage{}
+
+	targetAccountID, err := strconv.ParseInt(accountIDStr, 10, 64)
+	if err != nil {
+		msgs = append(msgs, Msg("Invalid challenge target.", "error"))
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	if e.store == nil {
+		msgs = append(msgs, Msg("Arena requires a database connection.", "error"))
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+
+	// Check/apply daily reset
+	today := game.GetArenaResetDate()
+	e.store.ResetArenaBattles(today)
+
+	// Get or create player's arena entry
+	entry, err := e.store.GetArenaEntry(session.AccountID, player.Name)
+	if err != nil {
+		msgs = append(msgs, Msg("Failed to load arena data.", "error"))
+		session.State = StateMainMenu
+		return BuildMainMenuResponse(session)
+	}
+	if entry == nil {
+		entry = &db.ArenaEntry{
+			AccountID:     session.AccountID,
+			CharacterName: player.Name,
+			Rating:        1000,
+			Wins:          0,
+			Losses:        0,
+			BattlesToday:  0,
+			LastReset:     today,
+		}
+		e.store.UpsertArenaEntry(*entry)
+		e.saveSession(session)
+	}
+
+	// Check battles remaining
+	if entry.LastReset != today {
+		entry.BattlesToday = 0
+		entry.LastReset = today
+		e.store.UpsertArenaEntry(*entry)
+	}
+	remaining := game.ArenaMaxBattlesPerDay - entry.BattlesToday
+	if remaining <= 0 {
+		msgs = append(msgs, Msg("No arena battles remaining today! Come back tomorrow.", "system"))
+		session.State = StateArenaMain
+		return GameResponse{
+			Type:     "menu",
+			Messages: msgs,
+			State:    &StateData{Screen: "arena_main", Player: MakePlayerState(player)},
+			Options:  []MenuOption{Opt("back", "Back")},
+		}
+	}
+
+	// Can't fight self
+	if targetAccountID == session.AccountID && charName == player.Name {
+		msgs = append(msgs, Msg("You can't challenge yourself!", "error"))
+		session.State = StateArenaMain
+		return e.handleArenaMain(session, GameCommand{Type: "init"})
+	}
+
+	// Validate target exists in arena
+	targetEntry, err := e.store.GetArenaEntry(targetAccountID, charName)
+	if err != nil || targetEntry == nil {
+		msgs = append(msgs, Msg("Opponent not found in the arena.", "error"))
+		session.State = StateArenaMain
+		return e.handleArenaMain(session, GameCommand{Type: "init"})
+	}
+
+	session.ArenaTargetAccountID = targetAccountID
+	session.ArenaTargetCharName = charName
+
+	if e.metrics != nil {
+		e.metrics.RecordFeatureUse("arena")
+	}
+
+	msgs = append(msgs, Msg(fmt.Sprintf("Challenge %s (Rating: %d)?", targetEntry.CharacterName, targetEntry.Rating), "system"))
+	msgs = append(msgs, Msg(fmt.Sprintf("Your Rating: %d", entry.Rating), "system"))
+
+	session.State = StateArenaConfirm
+	return GameResponse{
+		Type:     "menu",
+		Messages: msgs,
+		State:    &StateData{Screen: "arena_confirm", Player: MakePlayerState(player)},
+		Options: []MenuOption{
+			Opt("y", "Fight!"),
+			Opt("n", "Cancel"),
+		},
+	}
+}
+
 // handleArenaConfirm processes the player's confirmation or cancellation of an arena challenge.
 func (e *Engine) handleArenaConfirm(session *GameSession, cmd GameCommand) GameResponse {
 	player := session.Player
