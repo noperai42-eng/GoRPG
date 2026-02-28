@@ -218,6 +218,12 @@ type StatsView struct {
 	PvPWins         int            `json:"pvp_wins"`
 	PvPLosses       int            `json:"pvp_losses"`
 	DungeonsCleared int            `json:"dungeons_cleared"`
+	DungeonsEntered int            `json:"dungeons_entered"`
+	FloorsCleared   int            `json:"floors_cleared"`
+	RoomsExplored   int            `json:"rooms_explored"`
+	TreasuresFound  int            `json:"treasures_found"`
+	TrapsTriggered  int            `json:"traps_triggered"`
+	HiddenChests    int            `json:"hidden_chests_found"`
 }
 
 // PlayerState shows visible player information.
@@ -466,6 +472,12 @@ func MakePlayerState(p *models.Character) *PlayerState {
 		PvPWins:         p.Stats.PvPWins,
 		PvPLosses:       p.Stats.PvPLosses,
 		DungeonsCleared: p.Stats.DungeonsCleared,
+		DungeonsEntered: p.Stats.DungeonsEntered,
+		FloorsCleared:   p.Stats.FloorsCleared,
+		RoomsExplored:   p.Stats.RoomsExplored,
+		TreasuresFound:  p.Stats.TreasuresFound,
+		TrapsTriggered:  p.Stats.TrapsTriggered,
+		HiddenChests:    p.Stats.HiddenChests,
 	}
 
 	return ps

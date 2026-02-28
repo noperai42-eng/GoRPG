@@ -863,7 +863,7 @@
                 <!-- Leaderboard -->
                 <div x-show="subTab === 'leaderboard'" class="stats-content">
                     <div class="leaderboard-categories">
-                        <template x-for="cat in ['kills', 'level', 'bosses', 'pvp_wins', 'combo']" :key="cat">
+                        <template x-for="cat in ['kills', 'level', 'bosses', 'pvp_wins', 'combo', 'dungeons', 'floors', 'rooms']" :key="cat">
                             <button class="leaderboard-cat-btn" :class="{ active: currentCategory === cat }" @click="switchCategory(cat)" x-text="categoryLabel(cat)"></button>
                         </template>
                     </div>

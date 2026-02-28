@@ -108,6 +108,9 @@ func (s *Store) createTables() error {
 			pvp_wins INTEGER DEFAULT 0,
 			player_level INTEGER DEFAULT 1,
 			highest_combo INTEGER DEFAULT 0,
+			dungeons_cleared INTEGER DEFAULT 0,
+			floors_cleared INTEGER DEFAULT 0,
+			rooms_explored INTEGER DEFAULT 0,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(account_id, character_name)
 		)`,
@@ -117,6 +120,16 @@ func (s *Store) createTables() error {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return fmt.Errorf("failed to execute %q: %w", stmt, err)
 		}
+	}
+
+	// Migrations: add columns that may not exist in older databases.
+	migrations := []string{
+		`ALTER TABLE leaderboards ADD COLUMN dungeons_cleared INTEGER DEFAULT 0`,
+		`ALTER TABLE leaderboards ADD COLUMN floors_cleared INTEGER DEFAULT 0`,
+		`ALTER TABLE leaderboards ADD COLUMN rooms_explored INTEGER DEFAULT 0`,
+	}
+	for _, m := range migrations {
+		s.db.Exec(m) // ignore "duplicate column" errors
 	}
 	return nil
 }
@@ -558,25 +571,28 @@ func (s *Store) GetRecentEvents(eventType string, limit int) ([]AnalyticsEvent, 
 
 // LeaderboardEntry represents a single leaderboard row.
 type LeaderboardEntry struct {
-	CharacterName string `json:"character_name"`
-	AccountID     int64  `json:"account_id"`
-	TotalKills    int    `json:"total_kills"`
-	TotalDeaths   int    `json:"total_deaths"`
-	BossesKilled  int    `json:"bosses_killed"`
-	PvPWins       int    `json:"pvp_wins"`
-	PlayerLevel   int    `json:"player_level"`
-	HighestCombo  int    `json:"highest_combo"`
+	CharacterName   string `json:"character_name"`
+	AccountID       int64  `json:"account_id"`
+	TotalKills      int    `json:"total_kills"`
+	TotalDeaths     int    `json:"total_deaths"`
+	BossesKilled    int    `json:"bosses_killed"`
+	PvPWins         int    `json:"pvp_wins"`
+	PlayerLevel     int    `json:"player_level"`
+	HighestCombo    int    `json:"highest_combo"`
+	DungeonsCleared int    `json:"dungeons_cleared"`
+	FloorsCleared   int    `json:"floors_cleared"`
+	RoomsExplored   int    `json:"rooms_explored"`
 }
 
 // UpdateLeaderboard upserts the leaderboard row for a character.
 func (s *Store) UpdateLeaderboard(accountID int64, charName string, stats models.CharacterStats, level int) error {
 	_, err := s.db.Exec(
-		`INSERT INTO leaderboards (character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		`INSERT INTO leaderboards (character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo, dungeons_cleared, floors_cleared, rooms_explored, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(account_id, character_name)
-		 DO UPDATE SET total_kills=?, total_deaths=?, bosses_killed=?, pvp_wins=?, player_level=?, highest_combo=?, updated_at=CURRENT_TIMESTAMP`,
-		charName, accountID, stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo,
-		stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo,
+		 DO UPDATE SET total_kills=?, total_deaths=?, bosses_killed=?, pvp_wins=?, player_level=?, highest_combo=?, dungeons_cleared=?, floors_cleared=?, rooms_explored=?, updated_at=CURRENT_TIMESTAMP`,
+		charName, accountID, stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo, stats.DungeonsCleared, stats.FloorsCleared, stats.RoomsExplored,
+		stats.TotalKills, stats.TotalDeaths, stats.BossesKilled, stats.PvPWins, level, stats.HighestCombo, stats.DungeonsCleared, stats.FloorsCleared, stats.RoomsExplored,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update leaderboard: %w", err)
@@ -598,10 +614,16 @@ func (s *Store) GetLeaderboard(category string, limit int) ([]LeaderboardEntry, 
 		orderCol = "pvp_wins"
 	case "combo":
 		orderCol = "highest_combo"
+	case "dungeons":
+		orderCol = "dungeons_cleared"
+	case "floors":
+		orderCol = "floors_cleared"
+	case "rooms":
+		orderCol = "rooms_explored"
 	}
 
 	query := fmt.Sprintf(
-		"SELECT character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo FROM leaderboards ORDER BY %s DESC LIMIT ?",
+		"SELECT character_name, account_id, total_kills, total_deaths, bosses_killed, pvp_wins, player_level, highest_combo, dungeons_cleared, floors_cleared, rooms_explored FROM leaderboards ORDER BY %s DESC LIMIT ?",
 		orderCol,
 	)
 	rows, err := s.db.Query(query, limit)
@@ -613,7 +635,7 @@ func (s *Store) GetLeaderboard(category string, limit int) ([]LeaderboardEntry, 
 	var entries []LeaderboardEntry
 	for rows.Next() {
 		var e LeaderboardEntry
-		if err := rows.Scan(&e.CharacterName, &e.AccountID, &e.TotalKills, &e.TotalDeaths, &e.BossesKilled, &e.PvPWins, &e.PlayerLevel, &e.HighestCombo); err != nil {
+		if err := rows.Scan(&e.CharacterName, &e.AccountID, &e.TotalKills, &e.TotalDeaths, &e.BossesKilled, &e.PvPWins, &e.PlayerLevel, &e.HighestCombo, &e.DungeonsCleared, &e.FloorsCleared, &e.RoomsExplored); err != nil {
 			return nil, fmt.Errorf("failed to scan leaderboard entry: %w", err)
 		}
 		entries = append(entries, e)

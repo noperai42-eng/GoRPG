@@ -57,7 +57,7 @@ function statsScreen() {
         },
 
         categoryLabel(cat) {
-            const labels = { kills: 'Kills', level: 'Level', bosses: 'Bosses', pvp_wins: 'PvP', combo: 'Combo' };
+            const labels = { kills: 'Kills', level: 'Level', bosses: 'Bosses', pvp_wins: 'PvP', combo: 'Combo', dungeons: 'Dungeons', floors: 'Floors', rooms: 'Rooms' };
             return labels[cat] || cat;
         },
 
@@ -68,6 +68,9 @@ function statsScreen() {
                 case 'bosses': return entry.bosses_killed;
                 case 'pvp_wins': return entry.pvp_wins;
                 case 'combo': return entry.highest_combo;
+                case 'dungeons': return entry.dungeons_cleared;
+                case 'floors': return entry.floors_cleared;
+                case 'rooms': return entry.rooms_explored;
                 default: return entry.total_kills;
             }
         },
