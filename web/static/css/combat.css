@@ -15,25 +15,13 @@
 }
 
 /* Turn Banner */
-.combat-turn-banner {
-    text-align: center;
-    padding: 0.5rem;
+.combat-top-bar {
+    display: flex;
+    align-items: center;
+    padding: 0.35rem 0.75rem;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
-}
-
-.combat-turn-text {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--accent);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-}
-
-.combat-hunts {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
 }
 
 /* Combatant Area */

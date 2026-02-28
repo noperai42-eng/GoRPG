@@ -83,6 +83,15 @@ function combatScreen() {
             this.g.autoHunting = false;
             clearTimeout(this.g._autoHuntTimer);
         },
+        returnToHub() {
+            this.g.autoHunting = false;
+            clearTimeout(this.g._autoHuntTimer);
+            this.g.combat = null;
+            this.g.combatLog = [];
+            this.g.dropdown = null;
+            this.g.activeTab = 'hub';
+            this.g.sendCommand('select', 'home');
+        },
 
         closeDropdown() {
             this.g.dropdown = null;

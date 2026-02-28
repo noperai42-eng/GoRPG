@@ -820,10 +820,9 @@
             <div class="combat-overlay" x-show="$store.game.inCombat" x-data="combatScreen()" x-effect="if ($store.game.inCombat) scrollLog()">
                 <template x-if="c">
                     <div style="display: flex; flex-direction: column; height: 100%;">
-                        <!-- Turn Banner -->
-                        <div class="combat-turn-banner">
-                            <div class="combat-turn-text" x-text="'Turn ' + c.turn"></div>
-                            <div class="combat-hunts" x-text="'Hunts remaining: ' + c.hunts_remaining"></div>
+                        <!-- Return to Hub -->
+                        <div class="combat-top-bar">
+                            <button class="btn btn-ghost btn-sm" @click="returnToHub()">&#x2190; Return to Hub</button>
                         </div>
 
                         <!-- Arena -->
