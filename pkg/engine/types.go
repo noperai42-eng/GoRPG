@@ -42,14 +42,22 @@ type MenuOption struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// OnlinePlayer represents another player currently online.
+type OnlinePlayer struct {
+	Name     string `json:"name"`
+	Level    int    `json:"level"`
+	Activity string `json:"activity"`
+}
+
 // StateData contains current visible game state for UI rendering.
 type StateData struct {
-	Screen  string       `json:"screen"`
-	Player  *PlayerState `json:"player,omitempty"`
-	Combat  *CombatView  `json:"combat,omitempty"`
-	Village *VillageView `json:"village,omitempty"`
-	Town    *TownView    `json:"town,omitempty"`
-	Dungeon *DungeonView `json:"dungeon,omitempty"`
+	Screen        string         `json:"screen"`
+	Player        *PlayerState   `json:"player,omitempty"`
+	Combat        *CombatView    `json:"combat,omitempty"`
+	Village       *VillageView   `json:"village,omitempty"`
+	Town          *TownView      `json:"town,omitempty"`
+	Dungeon       *DungeonView   `json:"dungeon,omitempty"`
+	OnlinePlayers []OnlinePlayer `json:"online_players,omitempty"`
 }
 
 // DungeonView represents dungeon state for the frontend.
@@ -62,12 +70,19 @@ type DungeonView struct {
 
 // DungeonFloorView represents a single dungeon floor.
 type DungeonFloorView struct {
-	FloorNumber int               `json:"floor_number"`
-	CurrentRoom int               `json:"current_room"`
-	TotalRooms  int               `json:"total_rooms"`
-	Cleared     bool              `json:"cleared"`
-	BossFloor   bool              `json:"boss_floor"`
-	Rooms       []DungeonRoomView `json:"rooms"`
+	FloorNumber int                `json:"floor_number"`
+	CurrentRoom int                `json:"current_room"`
+	TotalRooms  int                `json:"total_rooms"`
+	Cleared     bool               `json:"cleared"`
+	BossFloor   bool               `json:"boss_floor"`
+	Rooms       []DungeonRoomView  `json:"rooms"`
+	Grid        [][]DungeonTileView `json:"grid,omitempty"`
+	GridW       int                `json:"grid_w"`
+	GridH       int                `json:"grid_h"`
+	PlayerX     int                `json:"player_x"`
+	PlayerY     int                `json:"player_y"`
+	ExitX       int                `json:"exit_x"`
+	ExitY       int                `json:"exit_y"`
 }
 
 // DungeonRoomView represents a single dungeon room.
@@ -75,6 +90,15 @@ type DungeonRoomView struct {
 	Type       string `json:"type"`
 	Cleared    bool   `json:"cleared"`
 	RoomIndex  int    `json:"room_index"`
+}
+
+// DungeonTileView represents a single tile on the dungeon grid for the frontend.
+type DungeonTileView struct {
+	Type     string `json:"type"`
+	RoomIdx  int    `json:"room_idx"`
+	Explored bool   `json:"explored"`
+	RoomType string `json:"room_type,omitempty"`
+	Cleared  bool   `json:"cleared,omitempty"`
 }
 
 // --- View structs for enriched frontend state ---

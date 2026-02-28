@@ -7,19 +7,19 @@ document.addEventListener('alpine:init', () => {
         combat: null,            // CombatView from server
         village: null,           // VillageView from server
         town: null,              // TownView from server
+        dungeon: null,           // DungeonView from server
         serverScreen: null,      // raw screen field from server
         options: [],             // current server options
         prompt: null,            // current server prompt
-        toasts: [],              // [{text, category, id}]
         combatLog: [],           // messages during combat
-        recentMessages: [],      // event groups: [{id, timestamp, messages, collapsed}]
+        recentMessages: [],      // event groups: [{id, timestamp, messages, collapsed, isNew}]
         _groupId: 0,
+        onlinePlayers: [],       // [{name, level, activity}]
         pendingAction: null,     // for two-step command chains
         dropdown: null,          // 'items' | 'skills' | null - combat dropdown
         showCompletedQuests: false,
         autoHunting: false,      // true when auto-hunting through multiple fights
         _autoHuntTimer: null,    // timer ID for auto-hunt delay
-        _toastId: 0,
         version: '',             // server version string
 
         get inCombat() { return this.combat !== null; },
@@ -34,10 +34,41 @@ document.addEventListener('alpine:init', () => {
             fetch('/api/version').then(r => r.json()).then(d => {
                 if (d.version) Alpine.store('game').version = 'v' + d.version;
             }).catch(() => {});
+
+            // WASD keyboard support for dungeon grid movement
+            document.addEventListener('keydown', (e) => {
+                const s = Alpine.store('game').serverScreen;
+                if (s !== 'dungeon_floor_map' && s !== 'dungeon_grid_move') return;
+                // Don't intercept if user is typing in an input
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                const keyMap = {
+                    'w': 'n', 'W': 'n', 'ArrowUp': 'n',
+                    's': 's', 'S': 's', 'ArrowDown': 's',
+                    'a': 'w', 'A': 'w', 'ArrowLeft': 'w',
+                    'd': 'e', 'D': 'e', 'ArrowRight': 'e',
+                };
+                const dir = keyMap[e.key];
+                if (dir) {
+                    e.preventDefault();
+                    // Check if direction is available in current options
+                    const opts = Alpine.store('game').options;
+                    if (opts.some(o => o.key === dir)) {
+                        Alpine.store('game').sendCommand('select', dir);
+                    }
+                }
+            });
         },
 
         handleResponse(resp) {
             const isHarvestPush = resp.type === 'harvest';
+            const isPresencePush = resp.type === 'presence';
+
+            // Handle presence updates
+            if (resp.state && resp.state.online_players) {
+                this.onlinePlayers = resp.state.online_players;
+            }
+            if (isPresencePush) return;
 
             // Update player state
             if (resp.state) {
@@ -74,6 +105,11 @@ document.addEventListener('alpine:init', () => {
                 if (resp.state.town) {
                     this.town = resp.state.town;
                 }
+                if (resp.state.dungeon) {
+                    this.dungeon = resp.state.dungeon;
+                } else if (!this.combat && resp.state.screen && !resp.state.screen.startsWith('dungeon')) {
+                    this.dungeon = null;
+                }
                 if (!isHarvestPush) {
                     this.serverScreen = resp.state.screen || null;
                 }
@@ -99,21 +135,26 @@ document.addEventListener('alpine:init', () => {
                         this.combatLog = this.combatLog.slice(-80);
                     }
                 } else {
-                    // Outside combat, messages become toasts + grouped event feed
+                    // Outside combat, messages go to grouped event feed
                     const batchMsgs = [];
                     for (const msg of resp.messages) {
                         if (msg.text && msg.text.trim()) {
-                            this.addToast(msg.text, msg.category || 'system');
                             batchMsgs.push({ text: msg.text, category: msg.category || 'system' });
                         }
                     }
                     if (batchMsgs.length > 0) {
+                        const gid = ++this._groupId;
                         this.recentMessages.push({
-                            id: ++this._groupId,
+                            id: gid,
                             timestamp: Date.now(),
                             messages: batchMsgs,
-                            collapsed: true
+                            collapsed: true,
+                            isNew: true
                         });
+                        setTimeout(() => {
+                            const g = this.recentMessages.find(g => g.id === gid);
+                            if (g) g.isNew = false;
+                        }, 2000);
                         if (this.recentMessages.length > 15) {
                             this.recentMessages = this.recentMessages.slice(-15);
                         }
@@ -160,7 +201,6 @@ document.addEventListener('alpine:init', () => {
 
             // Handle exit
             if (resp.type === 'exit') {
-                this.addToast('Game saved. Disconnecting...', 'system');
                 setTimeout(() => {
                     GameConnection.disconnect();
                     this.screen = 'characters';
@@ -169,6 +209,7 @@ document.addEventListener('alpine:init', () => {
                     this.village = null;
                     this.town = null;
                     this.activeTab = 'hub';
+                    this.onlinePlayers = [];
                 }, 1500);
             }
         },
@@ -200,6 +241,12 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
+            // Dungeon screens
+            if (s === 'dungeon_select' || s === 'dungeon_floor_map' || s === 'dungeon_room' || s === 'dungeon_grid_move') {
+                this.activeTab = 'map';
+                return;
+            }
+
             // Quest log
             if (s === 'quest_log') {
                 this.activeTab = 'quests';
@@ -220,20 +267,6 @@ document.addEventListener('alpine:init', () => {
 
         sendCommand(type, value) {
             GameConnection.sendCommand(type, value || '');
-        },
-
-        addToast(text, category) {
-            const id = ++this._toastId;
-            this.toasts.push({ text, category, id });
-            setTimeout(() => this.removeToast(id), 4000);
-            // Limit max visible toasts
-            if (this.toasts.length > 8) {
-                this.toasts = this.toasts.slice(-8);
-            }
-        },
-
-        removeToast(id) {
-            this.toasts = this.toasts.filter(t => t.id !== id);
         },
 
         // Helper: get HP bar class

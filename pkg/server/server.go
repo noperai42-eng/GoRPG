@@ -465,6 +465,29 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Online players ticker — push every 15 seconds.
+	go func() {
+		presenceTicker := time.NewTicker(15 * time.Second)
+		defer presenceTicker.Stop()
+		for {
+			select {
+			case <-presenceTicker.C:
+				players := s.engine.GetOnlinePlayers(sessionID)
+				resp := engine.GameResponse{
+					Type: "presence",
+					State: &engine.StateData{
+						OnlinePlayers: players,
+					},
+				}
+				if err := writeJSON(resp); err != nil {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	// Configure read side.
 	conn.SetReadLimit(maxMessageSize)
 	conn.SetReadDeadline(time.Now().Add(pongWait))

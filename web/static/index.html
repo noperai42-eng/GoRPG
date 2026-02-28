@@ -345,42 +345,15 @@
                                 </template>
                             </div>
 
-                            <!-- Activity Feed -->
-                            <div class="card">
-                                <div class="section-header">Activity</div>
-                                <div class="activity-feed">
-                                    <template x-for="group in $store.game.recentMessages.slice(-10).reverse()" :key="group.id">
-                                        <!-- Single-message group: flat row -->
-                                        <template x-if="group.messages.length === 1">
-                                            <div class="activity-item" :class="group.messages[0].category">
-                                                <span class="activity-icon" x-text="categoryIcon(group.messages[0].category)"></span>
-                                                <span class="activity-text" x-text="group.messages[0].text"></span>
-                                                <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
-                                            </div>
-                                        </template>
-                                        <!-- Multi-message group: collapsible card -->
-                                        <template x-if="group.messages.length > 1">
-                                            <div class="activity-group" :class="$store.game.groupHeader(group).category">
-                                                <div class="activity-group-header" @click="$store.game.toggleGroup(group.id)">
-                                                    <span class="activity-icon" x-text="categoryIcon($store.game.groupHeader(group).category)"></span>
-                                                    <span class="activity-text" x-text="$store.game.groupHeader(group).text"></span>
-                                                    <span class="activity-group-count" x-text="group.messages.length"></span>
-                                                    <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
-                                                    <span class="activity-chevron" :class="{ open: !group.collapsed }" x-text="group.collapsed ? '\u25B6' : '\u25BC'"></span>
-                                                </div>
-                                                <div class="activity-group-body" x-show="!group.collapsed" x-transition.opacity>
-                                                    <template x-for="(msg, j) in group.messages" :key="j">
-                                                        <div class="activity-item nested" :class="msg.category">
-                                                            <span class="activity-icon" x-text="categoryIcon(msg.category)"></span>
-                                                            <span class="activity-text" x-text="msg.text"></span>
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </template>
-                                    <div x-show="$store.game.recentMessages.length === 0" style="color: var(--text-muted); font-size: 0.8rem;">No recent activity</div>
-                                </div>
+                            <!-- Online Players -->
+                            <div class="card" x-show="$store.game.onlinePlayers.length > 0">
+                                <div class="section-header">Online Players</div>
+                                <template x-for="op in $store.game.onlinePlayers" :key="op.name">
+                                    <div class="stat-row">
+                                        <span class="stat-label" x-text="op.name + ' (Lv ' + op.level + ')'"></span>
+                                        <span class="stat-value" x-text="op.activity"></span>
+                                    </div>
+                                </template>
                             </div>
 
                             <!-- Auto-Play Menu (shown when in autoplay state) -->
@@ -912,11 +885,47 @@
 
         </div><!-- end tab content -->
 
-        <!-- TOAST CONTAINER -->
-        <div class="toast-container" x-data="toastSystem()">
-            <template x-for="toast in $store.game.toasts" :key="toast.id">
-                <div class="toast" :class="'toast-' + toast.category" x-text="toast.text" @click="$store.game.removeToast(toast.id)"></div>
-            </template>
+        <!-- ACTIVITY PANEL -->
+        <div class="activity-panel" x-show="!$store.game.inCombat && $store.game.recentMessages.length > 0" x-data="activityPanel()" x-transition.opacity>
+            <div class="activity-panel-header" @click="expanded = !expanded">
+                <span>Activity</span>
+                <span class="activity-panel-count" x-text="$store.game.recentMessages.length"></span>
+                <span x-text="expanded ? '\u25BC' : '\u25B2'" style="margin-left: auto; font-size: 0.7rem;"></span>
+            </div>
+            <div class="activity-panel-body" x-show="expanded" x-transition>
+                <template x-for="group in $store.game.recentMessages.slice(-10).reverse()" :key="group.id">
+                    <div>
+                        <!-- Single-message: flat row -->
+                        <template x-if="group.messages.length === 1">
+                            <div class="activity-item" :class="[group.messages[0].category, group.isNew ? 'activity-new' : '']">
+                                <span class="activity-icon" x-text="categoryIcon(group.messages[0].category)"></span>
+                                <span class="activity-text" x-text="group.messages[0].text"></span>
+                                <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
+                            </div>
+                        </template>
+                        <!-- Multi-message: collapsible -->
+                        <template x-if="group.messages.length > 1">
+                            <div class="activity-group" :class="[$store.game.groupHeader(group).category, group.isNew ? 'activity-new' : '']">
+                                <div class="activity-group-header" @click="$store.game.toggleGroup(group.id)">
+                                    <span class="activity-icon" x-text="categoryIcon($store.game.groupHeader(group).category)"></span>
+                                    <span class="activity-text" x-text="$store.game.groupHeader(group).text"></span>
+                                    <span class="activity-group-count" x-text="group.messages.length"></span>
+                                    <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
+                                    <span class="activity-chevron" :class="{ open: !group.collapsed }" x-text="group.collapsed ? '\u25B6' : '\u25BC'"></span>
+                                </div>
+                                <div class="activity-group-body" x-show="!group.collapsed" x-transition.opacity>
+                                    <template x-for="(msg, j) in group.messages" :key="j">
+                                        <div class="activity-item nested" :class="msg.category">
+                                            <span class="activity-icon" x-text="categoryIcon(msg.category)"></span>
+                                            <span class="activity-text" x-text="msg.text"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
         </div>
 
         <!-- MODAL SYSTEM -->

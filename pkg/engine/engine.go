@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"strings"
+
 	"rpg-game/pkg/data"
 	"rpg-game/pkg/db"
 	"rpg-game/pkg/game"
@@ -367,6 +369,8 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 		return e.handleDungeonSelect(session, cmd)
 	case StateDungeonFloorMap:
 		return e.handleDungeonFloorMap(session, cmd)
+	case StateDungeonGridMove:
+		return e.handleDungeonMove(session, cmd)
 	case StateDungeonRoom, StateDungeonTreasure, StateDungeonTrap,
 		StateDungeonRest, StateDungeonMerchant:
 		return e.handleDungeonRoom(session, cmd)
@@ -511,6 +515,44 @@ func (e *Engine) ProcessHarvestTick(sessionID string) *HarvestTickResult {
 		Player:   MakePlayerState(session.Player),
 		Village:  MakeVillageView(&village),
 	}
+}
+
+// GetOnlinePlayers returns a list of online players, excluding the given session.
+func (e *Engine) GetOnlinePlayers(excludeSessionID string) []OnlinePlayer {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var players []OnlinePlayer
+	for id, sess := range e.sessions {
+		if id == excludeSessionID || sess.Player == nil {
+			continue
+		}
+		players = append(players, OnlinePlayer{
+			Name:     sess.Player.Name,
+			Level:    sess.Player.Level,
+			Activity: sessionActivity(sess.State),
+		})
+	}
+	return players
+}
+
+// sessionActivity maps a session state to a friendly activity label.
+func sessionActivity(state string) string {
+	if strings.HasPrefix(state, "combat") {
+		return "In Combat"
+	}
+	if strings.HasPrefix(state, "hunt") {
+		return "Hunting"
+	}
+	if strings.HasPrefix(state, "dungeon") {
+		return "Dungeon"
+	}
+	if strings.HasPrefix(state, "village") {
+		return "Village"
+	}
+	if strings.HasPrefix(state, "town") {
+		return "Town"
+	}
+	return "Hub"
 }
 
 // RemoveSession removes a session from the engine.
