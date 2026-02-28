@@ -59,6 +59,9 @@ func (e *Engine) handleDungeonSelect(session *GameSession, cmd GameCommand) Game
 	dungeon := game.GenerateDungeon(tmpl, seed)
 	player.ActiveDungeon = &dungeon
 	game.RecordDungeonEntered(&player.Stats)
+	if e.metrics != nil {
+		e.metrics.RecordDungeonEnter()
+	}
 
 	msgs := []GameMessage{
 		Msg(fmt.Sprintf("Entering %s...", dungeon.Name), "narrative"),
@@ -192,6 +195,9 @@ func (e *Engine) handleDungeonMove(session *GameSession, cmd GameCommand) GameRe
 		if clearedCount >= requiredClears {
 			floor.Cleared = true
 			game.RecordFloorCleared(&player.Stats)
+			if e.metrics != nil {
+				e.metrics.RecordFloorClear(floor.FloorNumber)
+			}
 			if dungeon.CurrentFloor+1 >= len(dungeon.Floors) {
 				return e.completeDungeon(session)
 			}
@@ -647,6 +653,9 @@ func (e *Engine) completeDungeon(session *GameSession) GameResponse {
 
 	// Record dungeon clear
 	game.RecordDungeonClear(&player.Stats)
+	if e.metrics != nil {
+		e.metrics.RecordDungeonClear()
+	}
 
 	// Bonus XP for completion
 	bonusXP := len(dungeon.Floors) * 100
@@ -689,6 +698,13 @@ func (e *Engine) handleDungeonDefeat(session *GameSession, msgs []GameMessage) G
 	msgs = append(msgs, Msg("========================================", "system"))
 
 	game.RecordDeath(&player.Stats)
+	if e.metrics != nil {
+		floorNum := 0
+		if player.ActiveDungeon != nil && player.ActiveDungeon.CurrentFloor < len(player.ActiveDungeon.Floors) {
+			floorNum = player.ActiveDungeon.Floors[player.ActiveDungeon.CurrentFloor].FloorNumber
+		}
+		e.metrics.RecordDungeonDeath(floorNum)
+	}
 
 	// Resurrect
 	player.HitpointsRemaining = player.HitpointsTotal

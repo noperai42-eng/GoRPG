@@ -9,6 +9,7 @@ import (
 
 	"rpg-game/pkg/auth"
 	"rpg-game/pkg/db"
+	"rpg-game/pkg/metrics"
 	"rpg-game/pkg/server"
 )
 
@@ -20,6 +21,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	secret := flag.String("secret", "change-me-in-production", "JWT signing secret")
 	staticDir := flag.String("static", "web/static", "path to static files directory")
+	maxAgents := flag.Int("max-agents", 20, "maximum number of AI agents")
 	flag.Parse()
 
 	store, err := db.NewStore(*dbPath)
@@ -28,7 +30,8 @@ func main() {
 	}
 
 	authService := auth.NewAuthService(store, *secret)
-	srv := server.NewServer(store, authService, *staticDir, Version)
+	mc := metrics.NewMetricsCollector()
+	srv := server.NewServer(store, authService, *staticDir, Version, mc, *maxAgents)
 
 	httpServer := &http.Server{
 		Addr:         *addr,

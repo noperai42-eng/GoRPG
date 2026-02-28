@@ -250,6 +250,10 @@ func (e *Engine) resolveArenaWin(session *GameSession, msgs []GameMessage) GameR
 		if winnerEntry != nil && loserEntry != nil {
 			gain, loss := game.CalculateArenaPoints(winnerEntry.Rating, loserEntry.Rating)
 
+			if e.metrics != nil {
+				e.metrics.RecordArenaFight(winnerEntry.Rating, loserEntry.Rating)
+			}
+
 			winnerEntry.Rating += gain
 			winnerEntry.Wins++
 			winnerEntry.BattlesToday++

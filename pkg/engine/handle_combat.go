@@ -181,18 +181,27 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 		if isCrit {
 			playerAttack *= 2
 			msgs = append(msgs, Msg("*** CRITICAL HIT! ***", "combat"))
+			if e.metrics != nil {
+				e.metrics.RecordCrit(true)
+			}
 		}
 		mobDef := game.MultiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
 		if playerAttack > mobDef {
 			diff := game.ApplyDamage(playerAttack-mobDef, models.Physical, mob)
 			mob.HitpointsRemaining -= diff
 			msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", player.Name, diff), "damage"))
+			if e.metrics != nil {
+				e.metrics.RecordDamage(diff, "physical", true)
+			}
 		} else {
 			msgs = append(msgs, Msg(fmt.Sprintf("%s's attack missed!", player.Name), "combat"))
 		}
 
 	case "2": // Defend
 		combat.IsDefending = true
+		if e.metrics != nil {
+			e.metrics.RecordDefend()
+		}
 		playerAttack := (game.MultiRoll(player.AttackRolls) + player.StatsMod.AttackMod) / 2
 		playerDef = int(float64(game.MultiRoll(player.DefenseRolls)+player.StatsMod.DefenseMod) * 1.5)
 		msgs = append(msgs, Msg(fmt.Sprintf("%s takes a defensive stance!", player.Name), "combat"))
@@ -309,6 +318,9 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 
 	case "6": // Auto-fight: resolve rest of combat automatically
 		combat.Turn-- // undo increment, autoResolveCombat manages its own turns
+		if e.metrics != nil {
+			e.metrics.RecordAutoFight()
+		}
 		return e.autoResolveCombat(session, msgs)
 
 	case "7": // Return to Hub - end the hunt chain and return to main menu
@@ -335,6 +347,9 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 		roll := rand.Intn(100)
 		if roll < fleeChance {
 			combat.Fled = true
+			if e.metrics != nil {
+				e.metrics.RecordFlee(true)
+			}
 			msgs = append(msgs, Msg(fmt.Sprintf("%s successfully fled from combat!", player.Name), "system"))
 			msgs = append(msgs, Msg("You escaped safely, but gained no rewards.", "system"))
 
@@ -358,6 +373,9 @@ func (e *Engine) handleCombatAction(session *GameSession, cmd GameCommand) GameR
 				State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
 				Options:  BuildMainMenuResponse(session).Options,
 			}
+		}
+		if e.metrics != nil {
+			e.metrics.RecordFlee(false)
 		}
 		msgs = append(msgs, Msg(fmt.Sprintf("%s tried to flee but failed!", player.Name), "combat"))
 		playerDef = game.MultiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
@@ -472,6 +490,9 @@ func (e *Engine) handleCombatItemSelect(session *GameSession, cmd GameCommand) G
 	originalIdx := consumableIndices[itemIdx-1]
 	game.UseConsumableItem(selectedItem, player)
 	game.RemoveItemFromInventory(&player.Inventory, originalIdx)
+	if e.metrics != nil {
+		e.metrics.RecordItemUse(selectedItem.Name)
+	}
 
 	// Consume the turn now
 	combat.Turn++
@@ -728,6 +749,9 @@ func (e *Engine) handleCombatSkillSelect(session *GameSession, cmd GameCommand) 
 	player.ManaRemaining -= skill.ManaCost
 	player.StaminaRemaining -= skill.StaminaCost
 	msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s!", player.Name, skill.Name), "combat"))
+	if e.metrics != nil {
+		e.metrics.RecordSkillUse(skill.Name)
+	}
 
 	// Apply skill effects
 	if skill.Damage < 0 {
@@ -758,6 +782,9 @@ func (e *Engine) handleCombatSkillSelect(session *GameSession, cmd GameCommand) 
 
 	// Apply status effects from skill
 	if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+		if e.metrics != nil {
+			e.metrics.RecordStatusEffect(skill.Effect.Type)
+		}
 		if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
 			// Buff on player
 			player.StatusEffects = append(player.StatusEffects, skill.Effect)
@@ -900,6 +927,10 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	}
 	game.RecordKill(&player.Stats, mob.MonsterType, mob.Rarity, locationName)
 	game.RecordXPGained(&player.Stats, xpGained)
+	if e.metrics != nil {
+		e.metrics.RecordCombatWin(locationName, mob.MonsterType, rarityDisplay, combat.Turn)
+		e.metrics.RecordXP(xpGained)
+	}
 	if mob.IsBoss {
 		game.RecordBossKill(&player.Stats)
 	}
@@ -1052,6 +1083,9 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	if player.Level > prevLevel {
 		msgs = append(msgs, Msg(fmt.Sprintf("LEVEL UP! Now level %d!", player.Level), "levelup"))
 		msgs = append(msgs, Msg(fmt.Sprintf("HP: %d, MP: %d, SP: %d", player.HitpointsTotal, player.ManaTotal, player.StaminaTotal), "levelup"))
+		if e.metrics != nil {
+			e.metrics.RecordLevelUp(player.Level)
+		}
 	}
 
 	// Level up the replaced monster
@@ -1257,6 +1291,14 @@ func (e *Engine) resolveCombatLoss(session *GameSession, msgs []GameMessage) Gam
 	game.RecordDeath(&player.Stats)
 	if combat.IsPvP {
 		game.RecordPvPResult(&player.Stats, false)
+	}
+	if e.metrics != nil {
+		locationName := ""
+		if combat.Location != nil {
+			locationName = combat.Location.Name
+		}
+		rarityDisplay := game.RarityDisplayName(mob.Rarity)
+		e.metrics.RecordCombatLoss(locationName, mob.MonsterType, rarityDisplay, combat.Turn)
 	}
 
 	// Track autoplay stats
@@ -1487,6 +1529,9 @@ func (e *Engine) processMonsterTurnMsgs(session *GameSession, playerDef int) []G
 		if isCrit {
 			mobAttack *= 2
 			msgs = append(msgs, Msg(fmt.Sprintf("*** %s CRITICAL HIT! ***", mob.Name), "combat"))
+			if e.metrics != nil {
+				e.metrics.RecordCrit(false)
+			}
 		}
 
 		if mobAttack > playerDef {
@@ -1505,6 +1550,9 @@ func (e *Engine) processMonsterTurnMsgs(session *GameSession, playerDef int) []G
 
 			player.HitpointsRemaining -= finalDamage
 			msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", mob.Name, finalDamage), "damage"))
+			if e.metrics != nil {
+				e.metrics.RecordDamage(finalDamage, "physical", false)
+			}
 		} else {
 			msgs = append(msgs, Msg(fmt.Sprintf("%s's attack missed!", mob.Name), "combat"))
 		}

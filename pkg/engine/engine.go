@@ -11,6 +11,7 @@ import (
 	"rpg-game/pkg/data"
 	"rpg-game/pkg/db"
 	"rpg-game/pkg/game"
+	"rpg-game/pkg/metrics"
 	"rpg-game/pkg/models"
 )
 
@@ -18,6 +19,7 @@ import (
 type Engine struct {
 	sessions    map[string]*GameSession
 	store       *db.Store
+	metrics     *metrics.MetricsCollector
 	mu          sync.RWMutex
 	subscribers map[string]func(GameResponse) // keyed by sessionID
 	subMu       sync.RWMutex                  // separate mutex to avoid deadlock
@@ -32,10 +34,11 @@ func NewEngine() *Engine {
 }
 
 // NewEngineWithStore creates a game engine backed by a SQLite store.
-func NewEngineWithStore(store *db.Store) *Engine {
+func NewEngineWithStore(store *db.Store, mc *metrics.MetricsCollector) *Engine {
 	return &Engine{
 		sessions:    make(map[string]*GameSession),
 		store:       store,
+		metrics:     mc,
 		subscribers: make(map[string]func(GameResponse)),
 	}
 }
@@ -197,6 +200,9 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 			}
 			session.SelectedTown = nil
 			session.State = StateMainMenu
+			if e.metrics != nil {
+				e.metrics.RecordFeatureUse("home")
+			}
 			return BuildMainMenuResponse(session)
 		case "hunt":
 			// Go to hunt from any state — reset to main menu first, then route.
@@ -206,6 +212,9 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 			}
 			session.SelectedTown = nil
 			session.State = StateMainMenu
+			if e.metrics != nil {
+				e.metrics.RecordFeatureUse("hunt")
+			}
 			return e.handleMainMenu(session, GameCommand{Type: "select", Value: "3"})
 		case "harvest":
 			// Go to harvest from any state.
@@ -215,6 +224,9 @@ func (e *Engine) ProcessCommand(sessionID string, cmd GameCommand) GameResponse 
 			}
 			session.SelectedTown = nil
 			session.State = StateMainMenu
+			if e.metrics != nil {
+				e.metrics.RecordFeatureUse("harvest")
+			}
 			return e.handleMainMenu(session, GameCommand{Type: "select", Value: "1"})
 		case "10":
 			return e.handleMainMenu(session, cmd)

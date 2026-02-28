@@ -12,11 +12,15 @@ import (
 	"sync"
 	"time"
 
+	"strconv"
+
 	"github.com/gorilla/websocket"
+	"rpg-game/pkg/agent"
 	"rpg-game/pkg/auth"
 	"rpg-game/pkg/db"
 	"rpg-game/pkg/engine"
 	"rpg-game/pkg/game"
+	"rpg-game/pkg/metrics"
 	"rpg-game/pkg/models"
 )
 
@@ -31,6 +35,8 @@ type Server struct {
 	engine   *engine.Engine
 	store    *db.Store
 	auth     *auth.AuthService
+	metrics  *metrics.MetricsCollector
+	agentMgr *agent.Manager
 	version  string
 	upgrader websocket.Upgrader
 	mux      *http.ServeMux
@@ -39,11 +45,15 @@ type Server struct {
 // NewServer creates a new Server wired to the given store and auth service.
 // staticDir is the path to the directory containing static web assets; if empty,
 // it defaults to ../../web/static relative to this source file.
-func NewServer(store *db.Store, authService *auth.AuthService, staticDir string, version string) *Server {
+// maxAgents controls the maximum number of AI agents (0 disables agents).
+func NewServer(store *db.Store, authService *auth.AuthService, staticDir string, version string, mc *metrics.MetricsCollector, maxAgents int) *Server {
+	eng := engine.NewEngineWithStore(store, mc)
 	s := &Server{
-		engine:  engine.NewEngineWithStore(store),
+		engine:  eng,
 		store:   store,
 		auth:    authService,
+		metrics: mc,
+		agentMgr: agent.NewManager(eng, store, maxAgents),
 		version: version,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -62,6 +72,11 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 	s.mux.HandleFunc("/api/leaderboard", s.corsWrapper(s.handleLeaderboard))
 	s.mux.HandleFunc("/api/mostwanted", s.corsWrapper(s.handleMostWanted))
 	s.mux.HandleFunc("/api/arena", s.corsWrapper(s.handleArena))
+	s.mux.HandleFunc("/api/metrics", s.corsWrapper(s.authMiddleware(s.handleMetrics)))
+
+	// Agent API endpoints
+	s.mux.HandleFunc("/api/agents", s.corsWrapper(s.authMiddleware(s.handleAgents)))
+	s.mux.HandleFunc("/api/agents/", s.corsWrapper(s.authMiddleware(s.handleAgentByID)))
 
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws/game", s.handleWebSocket)
@@ -76,10 +91,12 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 
 	// Evolution ticker — monsters fight each other every 60 seconds.
 	// Also resets arena daily battles when the date changes.
+	// Flushes metrics snapshot to DB every 60 ticks (hourly).
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		lastArenaReset := game.GetArenaResetDate()
+		snapshotCounter := 0
 		for range ticker.C {
 			result := s.engine.ProcessEvolutionTick()
 			if result != nil {
@@ -96,6 +113,21 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 					log.Printf("[Arena] Daily battles reset for %s", today)
 				}
 				lastArenaReset = today
+			}
+			// Hourly metrics snapshot
+			snapshotCounter++
+			if snapshotCounter >= 60 {
+				snapshotCounter = 0
+				if s.metrics != nil {
+					jsonData, err := s.metrics.SnapshotJSON()
+					if err != nil {
+						log.Printf("[Metrics] Failed to create snapshot: %v", err)
+					} else if err := store.SaveMetricsSnapshot(time.Now(), jsonData); err != nil {
+						log.Printf("[Metrics] Failed to save snapshot: %v", err)
+					} else {
+						log.Printf("[Metrics] Hourly snapshot saved")
+					}
+				}
 			}
 		}
 	}()
@@ -142,7 +174,7 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 func (s *Server) corsWrapper(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == http.MethodOptions {
@@ -366,6 +398,113 @@ func (s *Server) handleArena(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMetrics handles GET /api/metrics with optional ?history=N for historical snapshots.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.metrics == nil {
+		jsonError(w, http.StatusServiceUnavailable, "metrics not available")
+		return
+	}
+
+	snap := s.metrics.Snapshot()
+	result := map[string]interface{}{
+		"uptime_seconds": snap.UptimeSeconds,
+		"online_players": snap.OnlinePlayers,
+		"combat":         snap.Combat,
+		"progression":    snap.Progression,
+		"economy":        snap.Economy,
+		"arena":          snap.Arena,
+		"dungeons":       snap.Dungeons,
+		"engagement":     snap.Engagement,
+	}
+
+	// Optional historical data
+	historyParam := r.URL.Query().Get("history")
+	if historyParam != "" {
+		hours, err := strconv.Atoi(historyParam)
+		if err == nil && hours > 0 {
+			if hours > 168 { // cap at 1 week
+				hours = 168
+			}
+			since := time.Now().Add(-time.Duration(hours) * time.Hour)
+			snapshots, err := s.store.GetMetricsHistory(since, hours)
+			if err == nil {
+				result["history"] = snapshots
+			}
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, result)
+}
+
+// ---------------------------------------------------------------------------
+// Agent API handlers
+// ---------------------------------------------------------------------------
+
+// handleAgents routes GET and POST /api/agents.
+func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		agents := s.agentMgr.ListAgents()
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"agents": agents,
+		})
+	case http.MethodPost:
+		var req agent.CreateAgentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		info, err := s.agentMgr.CreateAgent(req)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonResponse(w, http.StatusCreated, info)
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleAgentByID routes GET and DELETE /api/agents/{id}.
+func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
+	// Extract agent ID from URL path: /api/agents/{id}
+	agentID := strings.TrimPrefix(r.URL.Path, "/api/agents/")
+	if agentID == "" {
+		jsonError(w, http.StatusBadRequest, "agent ID is required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		info, err := s.agentMgr.GetAgent(agentID)
+		if err != nil {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonResponse(w, http.StatusOK, info)
+	case http.MethodDelete:
+		if err := s.agentMgr.StopAgent(agentID); err != nil {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]string{"status": "stopped"})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// StopAllAgents gracefully stops all running agents. Called during server shutdown.
+func (s *Server) StopAllAgents() {
+	if s.agentMgr != nil {
+		s.agentMgr.StopAll()
+	}
+}
+
 // handleCharacters routes GET and POST /api/characters to the correct handler.
 func (s *Server) handleCharacters(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -475,6 +614,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("WebSocket connected: %s (account %d)", username, accountID)
+
+	// Track online player count.
+	if s.metrics != nil {
+		s.metrics.OnlinePlayers.Add(1)
+	}
 
 	// Create a database-backed session for this account.
 	sessionID, err := s.engine.CreateDBSession(accountID)
@@ -627,6 +771,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Cleanup: stop ping goroutine, unsubscribe, save session, remove it, close connection.
 	close(done)
+
+	if s.metrics != nil {
+		s.metrics.OnlinePlayers.Add(-1)
+	}
 
 	s.engine.Unsubscribe(sessionID)
 

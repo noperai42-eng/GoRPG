@@ -295,11 +295,17 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 
 	case "7":
 		// Player Guide
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("guide")
+		}
 		session.State = StateGuideMain
 		return e.handleGuideMain(session, GameCommand{Type: "init"})
 
 	case "8":
 		// Auto-Play Speed
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("autoplay")
+		}
 		session.State = StateAutoPlaySpeed
 		return GameResponse{
 			Type:     "menu",
@@ -315,6 +321,9 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 
 	case "9":
 		// Quest Log
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("quests")
+		}
 		session.State = StateQuestLog
 		msgs := buildQuestLogMessages(player, gs)
 		return GameResponse{
@@ -326,6 +335,9 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 
 	case "10":
 		// Village Management
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("village")
+		}
 		if gs.Villages == nil {
 			gs.Villages = make(map[string]models.Village)
 		}
@@ -342,11 +354,17 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 
 	case "11":
 		// Town
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("town")
+		}
 		session.State = StateTownMain
 		return e.handleTownMain(session, GameCommand{Type: "init"})
 
 	case "12":
 		// Dungeon
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("dungeon")
+		}
 		session.State = StateDungeonSelect
 		return e.handleDungeonSelect(session, GameCommand{Type: "init"})
 
@@ -357,6 +375,9 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 
 	case "14":
 		// Arena
+		if e.metrics != nil {
+			e.metrics.RecordFeatureUse("arena")
+		}
 		session.State = StateArenaMain
 		return e.handleArenaMain(session, GameCommand{Type: "init"})
 
@@ -381,6 +402,9 @@ func (e *Engine) handleHarvestSelect(session *GameSession, cmd GameCommand) Game
 	resourceType := cmd.Value
 
 	amount := game.HarvestResource(resourceType, &player.ResourceStorageMap)
+	if e.metrics != nil {
+		e.metrics.RecordHarvest(resourceType, amount)
+	}
 
 	// Apply town tax
 	taxMsg := ""

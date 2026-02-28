@@ -145,7 +145,7 @@ func TestFullGameFlow(t *testing.T) {
 	}
 
 	// 2. Create engine backed by SQLite.
-	eng := engine.NewEngineWithStore(store)
+	eng := engine.NewEngineWithStore(store, nil)
 
 	// 3. Create DB session.
 	sessionID, err := eng.CreateDBSession(accountID)
@@ -206,7 +206,7 @@ func TestFullGameFlow(t *testing.T) {
 	}
 
 	// 9. Create a brand-new session for the same account and verify persistence.
-	eng2 := engine.NewEngineWithStore(store)
+	eng2 := engine.NewEngineWithStore(store, nil)
 	sessionID2, err := eng2.CreateDBSession(accountID)
 	if err != nil {
 		t.Fatalf("second CreateDBSession failed: %v", err)
@@ -261,7 +261,7 @@ func TestConcurrentPlayers(t *testing.T) {
 
 			// Each goroutine gets its own engine to avoid any shared
 			// session-map contention (the store is the shared resource).
-			eng := engine.NewEngineWithStore(store)
+			eng := engine.NewEngineWithStore(store, nil)
 
 			sessionID, err := eng.CreateDBSession(accountID)
 			if err != nil {
@@ -477,7 +477,7 @@ func TestDBPersistence(t *testing.T) {
 	}
 
 	// 2. First session: init, harvest lumber, save.
-	eng1 := engine.NewEngineWithStore(store)
+	eng1 := engine.NewEngineWithStore(store, nil)
 	sid1, err := eng1.CreateDBSession(accountID)
 	if err != nil {
 		t.Fatalf("CreateDBSession failed: %v", err)
@@ -515,7 +515,7 @@ func TestDBPersistence(t *testing.T) {
 	eng1.RemoveSession(sid1)
 
 	// 3. Second session: verify the character still has resources.
-	eng2 := engine.NewEngineWithStore(store)
+	eng2 := engine.NewEngineWithStore(store, nil)
 	sid2, err := eng2.CreateDBSession(accountID)
 	if err != nil {
 		t.Fatalf("second CreateDBSession failed: %v", err)

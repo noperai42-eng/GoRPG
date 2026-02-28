@@ -126,6 +126,13 @@ func (s *Store) createTables() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(account_id, character_name)
 		)`,
+		`CREATE TABLE IF NOT EXISTS metrics_snapshots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			snapshot_time DATETIME NOT NULL,
+			data TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_metrics_snap_time ON metrics_snapshots(snapshot_time)`,
 	}
 
 	for _, stmt := range statements {
@@ -749,4 +756,49 @@ func (s *Store) GetArenaChampion() (*ArenaEntry, error) {
 		return nil, fmt.Errorf("failed to get arena champion: %w", err)
 	}
 	return &e, nil
+}
+
+// ---------------------------------------------------------------------------
+// Metrics snapshot methods
+// ---------------------------------------------------------------------------
+
+// MetricsSnapshotRow represents a stored metrics snapshot.
+type MetricsSnapshotRow struct {
+	ID           int64     `json:"id"`
+	SnapshotTime time.Time `json:"snapshot_time"`
+	Data         string    `json:"data"`
+}
+
+// SaveMetricsSnapshot persists a metrics snapshot to the database.
+func (s *Store) SaveMetricsSnapshot(snapshotTime time.Time, jsonData string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO metrics_snapshots (snapshot_time, data) VALUES (?, ?)",
+		snapshotTime, jsonData,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save metrics snapshot: %w", err)
+	}
+	return nil
+}
+
+// GetMetricsHistory retrieves recent metrics snapshots since the given time.
+func (s *Store) GetMetricsHistory(since time.Time, limit int) ([]MetricsSnapshotRow, error) {
+	rows, err := s.db.Query(
+		"SELECT id, snapshot_time, data FROM metrics_snapshots WHERE snapshot_time >= ? ORDER BY snapshot_time DESC LIMIT ?",
+		since, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics history: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []MetricsSnapshotRow
+	for rows.Next() {
+		var snap MetricsSnapshotRow
+		if err := rows.Scan(&snap.ID, &snap.SnapshotTime, &snap.Data); err != nil {
+			return nil, fmt.Errorf("failed to scan metrics snapshot: %w", err)
+		}
+		snapshots = append(snapshots, snap)
+	}
+	return snapshots, rows.Err()
 }
