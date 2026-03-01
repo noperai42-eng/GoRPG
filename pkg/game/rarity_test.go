@@ -11,20 +11,20 @@ func TestRollRarityDistribution(t *testing.T) {
 	counts := map[models.MonsterRarity]int{}
 
 	for i := 0; i < iterations; i++ {
-		r := RollRarity(1) // rankMax=1 means no shift, pure base weights
+		r := RollRarity(5) // rankMax=5 allows all rarities up to mythic
 		counts[r]++
 	}
 
 	commonPct := float64(counts[models.RarityCommon]) / float64(iterations) * 100
 	legendaryPct := float64(counts[models.RarityLegendary]) / float64(iterations) * 100
 
-	if commonPct <= 50.0 {
-		t.Errorf("Common should be >50%% of rolls, got %.2f%% (%d/%d)",
+	if commonPct <= 20.0 {
+		t.Errorf("Common should be >20%% of rolls, got %.2f%% (%d/%d)",
 			commonPct, counts[models.RarityCommon], iterations)
 	}
 
-	if legendaryPct >= 3.0 {
-		t.Errorf("Legendary should be <3%% of rolls, got %.2f%% (%d/%d)",
+	if legendaryPct >= 5.0 {
+		t.Errorf("Legendary should be <5%% of rolls, got %.2f%% (%d/%d)",
 			legendaryPct, counts[models.RarityLegendary], iterations)
 	}
 
@@ -33,6 +33,18 @@ func TestRollRarityDistribution(t *testing.T) {
 	for _, rarity := range rarityOrder[:5] {
 		if counts[rarity] == 0 {
 			t.Errorf("Expected at least one roll of %s in %d iterations", rarity, iterations)
+		}
+	}
+
+	// Verify rankMax caps work: rankMax=1 should only produce common/uncommon
+	cappedCounts := map[models.MonsterRarity]int{}
+	for i := 0; i < iterations; i++ {
+		r := RollRarity(1)
+		cappedCounts[r]++
+	}
+	for _, rarity := range rarityOrder[2:] { // rare, epic, legendary, mythic
+		if cappedCounts[rarity] > 0 {
+			t.Errorf("RollRarity(1) should never produce %s, got %d", rarity, cappedCounts[rarity])
 		}
 	}
 }

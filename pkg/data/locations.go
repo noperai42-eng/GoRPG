@@ -4,7 +4,7 @@ import "rpg-game/pkg/models"
 
 var DiscoverableLocations = []models.Location{
 	{Name: "Home", Weight: 0, Type: "Base"},
-	{Name: "Training Hall", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
+	{Name: "Training Hall", Weight: 0, Type: "Mix", LevelMax: 10, RarityMax: 1},
 	{Name: "Forest", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
 	{Name: "Lake", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},
 	{Name: "Hills", Weight: 0, Type: "Mix", LevelMax: 20, RarityMax: 2},

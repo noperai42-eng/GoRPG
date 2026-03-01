@@ -37,11 +37,23 @@ var rarityOrder = [6]models.MonsterRarity{
 	models.RarityMythic,
 }
 
-// RollRarity returns a random rarity tier. Higher rankMax shifts weights
-// toward rarer tiers.
+// RollRarity returns a random rarity tier. rankMax caps the highest rarity
+// allowed (1=uncommon, 2=rare, 3=epic, 4=legendary, 5+=mythic) and shifts
+// weights toward rarer tiers at higher values. rankMax 0 means no cap.
 func RollRarity(rankMax int) models.MonsterRarity {
 	weights := [6]int{}
 	copy(weights[:], baseRarityWeights[:])
+
+	// Cap maximum rarity tier based on rankMax
+	if rankMax > 0 {
+		maxIdx := rankMax
+		if maxIdx > 5 {
+			maxIdx = 5
+		}
+		for i := maxIdx + 1; i < 6; i++ {
+			weights[i] = 0
+		}
+	}
 
 	// Shift weights based on rankMax: each point above 1 adds to rarer tiers
 	shift := rankMax - 1
@@ -51,9 +63,15 @@ func RollRarity(rankMax int) models.MonsterRarity {
 			weights[0] = 20000
 		}
 		weights[1] += shift * 2000
-		weights[2] += shift * 2000
-		weights[3] += shift * 1000
-		weights[4] += shift * 500
+		if weights[2] > 0 {
+			weights[2] += shift * 2000
+		}
+		if weights[3] > 0 {
+			weights[3] += shift * 1000
+		}
+		if weights[4] > 0 {
+			weights[4] += shift * 500
+		}
 		// Mythic stays at 1/100,000 — extremely rare natural spawns
 	}
 
