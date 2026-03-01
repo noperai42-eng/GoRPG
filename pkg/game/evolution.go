@@ -237,6 +237,19 @@ func ProcessLocationEvolution(loc *models.Location, gs *models.GameState) []Evol
 		}
 	}
 
+	// Check level-based migration (if not already rarity-migrated)
+	if winner != nil {
+		winnerCopy := *winner
+		if evt := MigrateMonsterByLevel(&winnerCopy, loc, gs); evt != nil {
+			events = append(events, *evt)
+			// Replace the migrated monster's old slot with a fresh one
+			freshMob := GenerateBestMonster(gs, loc.LevelMax, loc.RarityMax)
+			freshMob.LocationName = loc.Name
+			loc.Monsters[winnerIdx] = freshMob
+			winner = nil
+		}
+	}
+
 	// Place winner back (if not migrated)
 	if winner != nil {
 		loc.Monsters[winnerIdx] = *winner
@@ -297,6 +310,54 @@ func MigrateMonster(monster *models.Monster, fromLoc *models.Location, gs *model
 		EventType:    "migration",
 		LocationName: fromLoc.Name,
 		Details:      fmt.Sprintf("%s (%s) migrated from %s to %s", monster.Name, RarityDisplayName(monster.Rarity), fromLoc.Name, targetName),
+	}
+}
+
+// MigrateMonsterByLevel checks if a monster has outgrown its location's level cap
+// and migrates it to a suitable higher-level zone. Returns an EvolutionEvent if
+// migration occurred, or nil if no migration was needed/possible.
+func MigrateMonsterByLevel(monster *models.Monster, fromLoc *models.Location, gs *models.GameState) *EvolutionEvent {
+	// No migration needed if location is uncapped or monster fits
+	if fromLoc.LevelMax == 0 || monster.Level <= fromLoc.LevelMax {
+		return nil
+	}
+
+	// Find candidate locations that can hold this level
+	var candidates []string
+	for name, loc := range gs.GameLocations {
+		if name == fromLoc.Name {
+			continue
+		}
+		if loc.Type == "Base" {
+			continue
+		}
+		if len(loc.Monsters) == 0 {
+			continue
+		}
+		// Location must allow this level (uncapped or cap >= monster's level)
+		if loc.LevelMax == 0 || loc.LevelMax >= monster.Level {
+			candidates = append(candidates, name)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Pick a random target location
+	targetName := candidates[rand.Intn(len(candidates))]
+	targetLoc := gs.GameLocations[targetName]
+
+	// Replace a random monster in the target location
+	replaceIdx := rand.Intn(len(targetLoc.Monsters))
+	monster.LocationName = targetName
+	targetLoc.Monsters[replaceIdx] = *monster
+	gs.GameLocations[targetName] = targetLoc
+
+	return &EvolutionEvent{
+		EventType:    "migration",
+		LocationName: fromLoc.Name,
+		Details:      fmt.Sprintf("%s (Lv%d) migrated from %s to %s (exceeded level cap %d)", monster.Name, monster.Level, fromLoc.Name, targetName, fromLoc.LevelMax),
 	}
 }
 

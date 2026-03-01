@@ -703,6 +703,11 @@ func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
 		tideResult := game.ProcessAutoTide(&vwo.Village, &char)
 		tidesProcessed++
 
+		// Record tide outcome metric
+		if e.metrics != nil {
+			e.metrics.RecordTideOutcome(tideResult.Victory)
+		}
+
 		// Save village back to DB
 		if err := e.store.SaveVillage(vwo.CharacterID, vwo.Village); err != nil {
 			fmt.Printf("[AutoTide] Failed to save village for %s: %v\n", vwo.CharacterName, err)
@@ -762,6 +767,9 @@ func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
 
 	if tidesProcessed == 0 {
 		return nil
+	}
+	if e.metrics != nil {
+		e.metrics.RecordTideTick(tidesProcessed)
 	}
 	return &AutoTideTickResult{TidesProcessed: tidesProcessed}
 }
@@ -826,6 +834,9 @@ func (e *Engine) ProcessVillageManagerTicks() *VillageManagerTickResult {
 
 	if villagesManaged == 0 {
 		return nil
+	}
+	if e.metrics != nil {
+		e.metrics.RecordVillageManagerTick(villagesManaged)
 	}
 	return &VillageManagerTickResult{VillagesManaged: villagesManaged}
 }

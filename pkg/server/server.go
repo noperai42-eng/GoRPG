@@ -132,6 +132,13 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		}
 	}()
 
+	// Deduplicate villages table (cleans up rows from the old INSERT bug).
+	if removed, err := store.DeduplicateVillages(); err != nil {
+		log.Printf("[Startup] WARNING: failed to deduplicate villages: %v", err)
+	} else if removed > 0 {
+		log.Printf("[Startup] Deduplicated villages table: removed %d duplicate rows", removed)
+	}
+
 	// Auto-tide ticker — process automatic monster tides every 60 seconds.
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
@@ -323,7 +330,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleVersion handles GET /api/version.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusOK, map[string]string{"version": s.version})
+	cal := engine.CurrentGameCalendar()
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"version":   s.version,
+		"game_time": cal.FormatGameTime(),
+		"calendar":  cal,
+	})
 }
 
 // handleLeaderboard handles GET /api/leaderboard?category=kills&limit=20.
@@ -450,6 +462,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		"arena":          snap.Arena,
 		"dungeons":       snap.Dungeons,
 		"engagement":     snap.Engagement,
+		"village":        snap.Village,
 	}
 
 	// Optional historical data

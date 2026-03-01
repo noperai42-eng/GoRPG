@@ -392,12 +392,18 @@ func TestSmokeVersion(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var result map[string]string
+	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
 	if result["version"] != "test" {
 		t.Errorf("expected version 'test', got %q", result["version"])
+	}
+	if _, ok := result["game_time"]; !ok {
+		t.Error("expected game_time field in version response")
+	}
+	if _, ok := result["calendar"]; !ok {
+		t.Error("expected calendar field in version response")
 	}
 }

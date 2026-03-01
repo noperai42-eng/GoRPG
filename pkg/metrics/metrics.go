@@ -37,6 +37,12 @@ type MetricsCollector struct {
 	DungeonEnters     atomic.Int64
 	DungeonClears     atomic.Int64
 	DungeonDeaths     atomic.Int64
+	TideTicks           atomic.Int64
+	TidesProcessed      atomic.Int64
+	TideVictories       atomic.Int64
+	TideDefeats         atomic.Int64
+	VillageManagerTicks atomic.Int64
+	VillagesManaged     atomic.Int64
 	OnlinePlayers     atomic.Int64
 
 	// Distribution maps (single mutex)
@@ -272,6 +278,27 @@ func (mc *MetricsCollector) RecordFeatureUse(feature string) {
 	mc.mu.Unlock()
 }
 
+// RecordTideTick records a tide processing tick.
+func (mc *MetricsCollector) RecordTideTick(tidesProcessed int) {
+	mc.TideTicks.Add(1)
+	mc.TidesProcessed.Add(int64(tidesProcessed))
+}
+
+// RecordTideOutcome records a tide victory or defeat.
+func (mc *MetricsCollector) RecordTideOutcome(victory bool) {
+	if victory {
+		mc.TideVictories.Add(1)
+	} else {
+		mc.TideDefeats.Add(1)
+	}
+}
+
+// RecordVillageManagerTick records a village manager processing tick.
+func (mc *MetricsCollector) RecordVillageManagerTick(villagesManaged int) {
+	mc.VillageManagerTicks.Add(1)
+	mc.VillagesManaged.Add(int64(villagesManaged))
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot
 // ---------------------------------------------------------------------------
@@ -286,6 +313,7 @@ type MetricsSnapshot struct {
 	Arena         ArenaMetrics           `json:"arena"`
 	Dungeons      DungeonMetrics         `json:"dungeons"`
 	Engagement    EngagementMetrics      `json:"engagement"`
+	Village       VillageMetrics         `json:"village"`
 }
 
 // CombatMetrics holds combat-related aggregates.
@@ -358,6 +386,18 @@ type DungeonMetrics struct {
 // EngagementMetrics holds feature usage data.
 type EngagementMetrics struct {
 	FeatureUsage map[string]int64 `json:"feature_usage"`
+}
+
+// VillageMetrics holds village and tide-related aggregates.
+type VillageMetrics struct {
+	TideTicks           int64   `json:"tide_ticks"`
+	TidesProcessed      int64   `json:"tides_processed"`
+	TideVictories       int64   `json:"tide_victories"`
+	TideDefeats         int64   `json:"tide_defeats"`
+	TideWinRate         float64 `json:"tide_win_rate"`
+	AvgTidesPerTick     float64 `json:"avg_tides_per_tick"`
+	VillageManagerTicks int64   `json:"village_manager_ticks"`
+	VillagesManaged     int64   `json:"villages_managed"`
 }
 
 // Snapshot returns a JSON-serializable copy of all current metrics with computed rates.
@@ -464,6 +504,23 @@ func (mc *MetricsCollector) Snapshot() MetricsSnapshot {
 		Engagement: EngagementMetrics{
 			FeatureUsage: featureUsage,
 		},
+		Village: func() VillageMetrics {
+			tideTicks := mc.TideTicks.Load()
+			tidesProcessed := mc.TidesProcessed.Load()
+			tideVictories := mc.TideVictories.Load()
+			tideDefeats := mc.TideDefeats.Load()
+			tideTotal := tideVictories + tideDefeats
+			return VillageMetrics{
+				TideTicks:           tideTicks,
+				TidesProcessed:      tidesProcessed,
+				TideVictories:       tideVictories,
+				TideDefeats:         tideDefeats,
+				TideWinRate:         safeDiv(float64(tideVictories), float64(tideTotal)),
+				AvgTidesPerTick:     safeDiv(float64(tidesProcessed), float64(tideTicks)),
+				VillageManagerTicks: mc.VillageManagerTicks.Load(),
+				VillagesManaged:     mc.VillagesManaged.Load(),
+			}
+		}(),
 	}
 }
 

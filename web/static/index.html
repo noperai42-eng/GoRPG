@@ -155,6 +155,7 @@
                 </template>
             </div>
             <div class="nav-actions">
+                <span class="version-label" x-show="$store.game.gameTime" x-text="$store.game.gameTime" style="color: var(--text-muted); font-size: 0.7rem; margin-right: 0.5rem;"></span>
                 <span class="version-label" x-text="$store.game.version" style="color: var(--text-muted); font-size: 0.7rem; margin-right: 0.5rem;"></span>
                 <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
             </div>

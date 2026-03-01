@@ -25,6 +25,7 @@ document.addEventListener('alpine:init', () => {
         autoHunting: false,      // true when auto-hunting through multiple fights
         _autoHuntTimer: null,    // timer ID for auto-hunt delay
         version: '',             // server version string
+        gameTime: '',            // in-game calendar display
         leaderboard: null,       // leaderboard entries from API
         leaderboardCategory: 'kills', // current leaderboard category
         mostWanted: null,        // most wanted monster entries from API
@@ -38,10 +39,15 @@ document.addEventListener('alpine:init', () => {
             if (Auth.isLoggedIn()) {
                 this.screen = 'characters';
             }
-            // Fetch server version
-            fetch('/api/version').then(r => r.json()).then(d => {
-                if (d.version) Alpine.store('game').version = 'v' + d.version;
-            }).catch(() => {});
+            // Fetch server version and game time
+            const fetchVersion = () => {
+                fetch('/api/version').then(r => r.json()).then(d => {
+                    if (d.version) Alpine.store('game').version = 'v' + d.version;
+                    if (d.game_time) Alpine.store('game').gameTime = d.game_time;
+                }).catch(() => {});
+            };
+            fetchVersion();
+            setInterval(fetchVersion, 60000);
 
             // WASD keyboard support for dungeon grid movement
             document.addEventListener('keydown', (e) => {
