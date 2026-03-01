@@ -200,25 +200,53 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 	result := AutoTideResult{}
 
 	level := village.Level
-	totalWaves := 3 + level/5
-	monstersPerWave := 5 + level/3
+	// Scale gently: 1 wave at level 1-4, 2 at level 5-9, etc.
+	totalWaves := 1 + level/5
+	// 2 monsters at level 1, scales up slowly
+	monstersPerWave := 2 + level/2
 
 	defenseLevel := village.DefenseLevel
-	totalDefensePower := 0
-	for _, d := range village.Defenses {
-		if d.Built {
-			totalDefensePower += d.Defense + d.AttackPower
+
+	// Tide header
+	result.Messages = append(result.Messages,
+		fmt.Sprintf("--- Monster Tide on %s (Lv%d) ---", village.Name, level))
+
+	guardCount := 0
+	for _, g := range village.ActiveGuards {
+		if g.HitpointsRemaining > 0 {
+			guardCount++
 		}
 	}
+	trapCount := 0
+	for _, t := range village.Traps {
+		if t.Remaining > 0 {
+			trapCount++
+		}
+	}
+	defenseCount := 0
+	for _, d := range village.Defenses {
+		if d.Built {
+			defenseCount++
+		}
+	}
+	result.Messages = append(result.Messages,
+		fmt.Sprintf("Defenders: %d guards, %d traps, %d defenses", guardCount, trapCount, defenseCount))
+
+	monsterTypes := []string{"Goblin", "Orc", "Kobold", "Slime", "Skeleton", "Wolf", "Bandit"}
 
 	for wave := 1; wave <= totalWaves; wave++ {
 		result.WavesProcessed++
-		waveMsg := fmt.Sprintf("Wave %d/%d: %d monsters attack!", wave, totalWaves, monstersPerWave)
-		result.Messages = append(result.Messages, waveMsg)
+		result.Messages = append(result.Messages,
+			fmt.Sprintf("-- Wave %d/%d: %d monsters charge! --", wave, totalWaves, monstersPerWave))
+
+		waveKills := 0
+		waveBreaches := 0
 
 		for m := 0; m < monstersPerWave; m++ {
-			monsterHP := 20 + level*5 + rand.Intn(level*3+1)
-			monsterAtk := 5 + level*2 + rand.Intn(level+1)
+			monsterHP := 8 + level*3 + rand.Intn(level*2+1)
+			monsterAtk := 2 + level + rand.Intn(level+1)
+			monsterName := monsterTypes[rand.Intn(len(monsterTypes))]
+			monsterLabel := fmt.Sprintf("Lv%d %s", level+rand.Intn(3), monsterName)
 
 			// Phase 1: Traps
 			for i := range village.Traps {
@@ -227,6 +255,13 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 					monsterHP -= dmg
 					result.DamageDealt += dmg
 					village.Traps[i].Remaining--
+					if monsterHP <= 0 {
+						result.Messages = append(result.Messages,
+							fmt.Sprintf("  %s triggers %s for %d dmg - killed!", monsterLabel, village.Traps[i].Name, dmg))
+					} else {
+						result.Messages = append(result.Messages,
+							fmt.Sprintf("  %s triggers %s for %d dmg (%d HP left)", monsterLabel, village.Traps[i].Name, dmg, monsterHP))
+					}
 				}
 				if monsterHP <= 0 {
 					break
@@ -234,6 +269,7 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 			}
 			if monsterHP <= 0 {
 				result.MonstersKilled++
+				waveKills++
 				continue
 			}
 
@@ -243,6 +279,13 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 					dmg := d.AttackPower + rand.Intn(d.Level*2+1)
 					monsterHP -= dmg
 					result.DamageDealt += dmg
+					if monsterHP <= 0 {
+						result.Messages = append(result.Messages,
+							fmt.Sprintf("  %s hit by %s for %d dmg - killed!", monsterLabel, d.Name, dmg))
+					} else {
+						result.Messages = append(result.Messages,
+							fmt.Sprintf("  %s hit by %s for %d dmg (%d HP left)", monsterLabel, d.Name, dmg, monsterHP))
+					}
 				}
 				if monsterHP <= 0 {
 					break
@@ -250,23 +293,29 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 			}
 			if monsterHP <= 0 {
 				result.MonstersKilled++
+				waveKills++
 				continue
 			}
 
 			// Phase 3: Guards
-			guardKilled := false
+			guardEngaged := false
 			for i := range village.ActiveGuards {
 				if village.ActiveGuards[i].HitpointsRemaining <= 0 {
 					continue
 				}
-				guardAtk := village.ActiveGuards[i].AttackRolls*3 + village.ActiveGuards[i].AttackBonus + village.ActiveGuards[i].StatsMod.AttackMod
-				guardDef := village.ActiveGuards[i].DefenseRolls*2 + village.ActiveGuards[i].DefenseBonus + village.ActiveGuards[i].StatsMod.DefenseMod
+				guardEngaged = true
+				guard := &village.ActiveGuards[i]
+				guardAtk := guard.AttackRolls*3 + guard.AttackBonus + guard.StatsMod.AttackMod
+				guardDef := guard.DefenseRolls*2 + guard.DefenseBonus + guard.StatsMod.DefenseMod
 				// Guard attacks monster
 				dmg := guardAtk + rand.Intn(guardAtk/2+1)
 				monsterHP -= dmg
 				result.DamageDealt += dmg
 				if monsterHP <= 0 {
 					result.MonstersKilled++
+					waveKills++
+					result.Messages = append(result.Messages,
+						fmt.Sprintf("  %s engages %s - deals %d dmg - killed!", guard.Name, monsterLabel, dmg))
 					break
 				}
 				// Monster attacks guard
@@ -274,25 +323,38 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 				if mDmg < 1 {
 					mDmg = 1
 				}
-				village.ActiveGuards[i].HitpointsRemaining -= mDmg
+				guard.HitpointsRemaining -= mDmg
 				result.DamageTaken += mDmg
-				if village.ActiveGuards[i].HitpointsRemaining <= 0 {
-					village.ActiveGuards[i].Injured = true
-					guardKilled = true
+				if guard.HitpointsRemaining <= 0 {
+					guard.Injured = true
+					result.Messages = append(result.Messages,
+						fmt.Sprintf("  %s fights %s (%d dmg) but takes %d dmg and falls!", guard.Name, monsterLabel, dmg, mDmg))
+				} else {
+					result.Messages = append(result.Messages,
+						fmt.Sprintf("  %s fights %s (%d dmg) and takes %d dmg (%d/%d HP)", guard.Name, monsterLabel, dmg, mDmg, guard.HitpointsRemaining, guard.HitPoints))
 				}
 				break // one guard engages per monster
 			}
 			if monsterHP <= 0 {
-				if !guardKilled {
-					// Already counted above
-				}
 				continue
 			}
 
 			// Phase 4: Breach — monster got through
 			breachDmg := monsterAtk
 			result.DamageTaken += breachDmg
+			waveBreaches++
+			if !guardEngaged {
+				result.Messages = append(result.Messages,
+					fmt.Sprintf("  %s breaches undefended village! (%d breach dmg)", monsterLabel, breachDmg))
+			} else {
+				result.Messages = append(result.Messages,
+					fmt.Sprintf("  %s breaks through defenses! (%d breach dmg)", monsterLabel, breachDmg))
+			}
 		}
+
+		// Wave summary
+		result.Messages = append(result.Messages,
+			fmt.Sprintf("  Wave %d result: %d killed, %d breached", wave, waveKills, waveBreaches))
 
 		// Decrement trap durability at end of wave
 		for i := range village.Traps {
@@ -303,7 +365,14 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 	}
 
 	// Determine victory/defeat
-	defenseThreshold := defenseLevel * 50
+	// Base threshold of 30 means a level 1 village can absorb ~30 breach damage
+	// before losing, which is enough to survive 1 wave of 2 weak monsters.
+	defenseThreshold := 30 + defenseLevel*50
+
+	result.Messages = append(result.Messages,
+		fmt.Sprintf("-- Battle Over -- Total damage dealt: %d | Breach damage taken: %d/%d threshold",
+			result.DamageDealt, result.DamageTaken, defenseThreshold))
+
 	if result.DamageTaken < defenseThreshold {
 		// Victory
 		result.Victory = true
@@ -318,13 +387,40 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 			}
 		}
 		village.Experience += result.XPReward
-		result.Messages = append(result.Messages, fmt.Sprintf("Victory! Gained %d XP.", result.XPReward))
+		result.Messages = append(result.Messages,
+			fmt.Sprintf("VICTORY! %s held the line. %d/%d monsters slain. +%d XP",
+				village.Name, result.MonstersKilled, result.WavesProcessed*monstersPerWave, result.XPReward))
 		if result.BonusGold > 0 {
-			result.Messages = append(result.Messages, fmt.Sprintf("Bonus: +%d Gold for strong defense!", result.BonusGold))
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("Strong defense bonus: +%d Gold", result.BonusGold))
+		}
+
+		// Report surviving guard status
+		injured := 0
+		for _, g := range village.ActiveGuards {
+			if g.HitpointsRemaining > 0 && g.HitpointsRemaining < g.HitPoints {
+				injured++
+			}
+		}
+		fallen := 0
+		for _, g := range village.ActiveGuards {
+			if g.HitpointsRemaining <= 0 {
+				fallen++
+			}
+		}
+		if fallen > 0 || injured > 0 {
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("Guard casualties: %d fallen, %d injured", fallen, injured))
 		}
 	} else {
-		// Defeat — more severe than manual
+		// Defeat — total village destruction
 		result.Victory = false
+		previousLevel := village.Level
+
+		// Count losses for reporting
+		result.GuardsLost = len(village.ActiveGuards)
+		result.VillagersLost = len(village.Villagers)
+		result.DefensesDestroyed = len(village.Defenses)
 
 		// Steal resources
 		resourceTypes := []string{"Lumber", "Gold", "Iron", "Sand", "Stone"}
@@ -341,62 +437,42 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 			}
 		}
 
-		// Destroy defenses
-		if len(village.Defenses) > 0 {
-			destroyCount := 1 + rand.Intn(len(village.Defenses)/2+1)
-			destroyed := 0
-			for i := range village.Defenses {
-				if destroyed >= destroyCount {
-					break
-				}
-				if village.Defenses[i].Built {
-					village.Defenses[i].Built = false
-					village.Defenses[i].Level = 0
-					destroyed++
-				}
-			}
-			result.DefensesDestroyed = destroyed
-			if village.DefenseLevel > 1 {
-				village.DefenseLevel--
-			}
-		}
+		// Total reset: village razed to level 1
+		village.Level = 1
+		village.Experience = 0
+		village.DefenseLevel = 1
+		village.Villagers = []models.Villager{}
+		village.ActiveGuards = []models.Guard{}
+		village.Defenses = []models.Defense{}
+		village.Traps = []models.Trap{}
 
-		// Kill villagers
-		if len(village.Villagers) > 0 {
-			killCount := 1 + rand.Intn(len(village.Villagers)/3+1)
-			if killCount > len(village.Villagers) {
-				killCount = len(village.Villagers)
-			}
-			village.Villagers = village.Villagers[:len(village.Villagers)-killCount]
-			result.VillagersLost = killCount
-		}
-
-		// Kill guards
-		if len(village.ActiveGuards) > 0 {
-			guardKillCount := 1 + rand.Intn(len(village.ActiveGuards)/2+1)
-			if guardKillCount > len(village.ActiveGuards) {
-				guardKillCount = len(village.ActiveGuards)
-			}
-			village.ActiveGuards = village.ActiveGuards[:len(village.ActiveGuards)-guardKillCount]
-			result.GuardsLost = guardKillCount
-		}
-
-		result.Messages = append(result.Messages, "Defeat! The monsters overwhelmed your village!")
-		if result.ResourcesLost > 0 {
-			result.Messages = append(result.Messages, fmt.Sprintf("Lost %d resources to looting.", result.ResourcesLost))
-		}
-		if result.DefensesDestroyed > 0 {
-			result.Messages = append(result.Messages, fmt.Sprintf("%d defenses destroyed.", result.DefensesDestroyed))
-		}
-		if result.VillagersLost > 0 {
-			result.Messages = append(result.Messages, fmt.Sprintf("%d villagers lost.", result.VillagersLost))
+		result.Messages = append(result.Messages,
+			fmt.Sprintf("DEFEAT! %s has been razed! The monsters overwhelmed all defenses.", village.Name))
+		if previousLevel > 1 {
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("Village level reset from %d to 1. All progress lost.", previousLevel))
 		}
 		if result.GuardsLost > 0 {
-			result.Messages = append(result.Messages, fmt.Sprintf("%d guards lost.", result.GuardsLost))
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("All %d guards have perished.", result.GuardsLost))
 		}
+		if result.VillagersLost > 0 {
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("All %d villagers have been lost.", result.VillagersLost))
+		}
+		if result.DefensesDestroyed > 0 {
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("All %d defenses and structures destroyed.", result.DefensesDestroyed))
+		}
+		if result.ResourcesLost > 0 {
+			result.Messages = append(result.Messages,
+				fmt.Sprintf("%d resources looted by the invaders.", result.ResourcesLost))
+		}
+		result.Messages = append(result.Messages,
+			"The village must be rebuilt from scratch.")
 	}
 
-	// Clean up dead guards (already injured from combat)
+	// Clean up dead guards (only matters on victory path)
 	aliveGuards := []models.Guard{}
 	for _, g := range village.ActiveGuards {
 		if g.HitpointsRemaining > 0 {
@@ -405,7 +481,7 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 	}
 	village.ActiveGuards = aliveGuards
 
-	// Remove spent traps
+	// Remove spent traps (only matters on victory path)
 	activeTraps := []models.Trap{}
 	for _, t := range village.Traps {
 		if t.Remaining > 0 {
@@ -418,4 +494,92 @@ func ProcessAutoTide(village *models.Village, player *models.Character) AutoTide
 	UpgradeVillage(village)
 
 	return result
+}
+
+// ProcessVillageManagerTick performs automated village upkeep: assigning idle
+// harvesters, hiring guards, building defenses/traps, recovering guards, and
+// upgrading the village. Returns a list of action messages (empty if nothing done).
+func ProcessVillageManagerTick(village *models.Village, player *models.Character) []string {
+	var messages []string
+	resourceTypes := []string{"Lumber", "Gold", "Iron", "Sand", "Stone"}
+
+	// 1. Assign idle harvesters
+	for i := range village.Villagers {
+		v := &village.Villagers[i]
+		if v.Role == "harvester" && v.HarvestType == "" {
+			v.HarvestType = resourceTypes[rand.Intn(len(resourceTypes))]
+			v.AssignedTask = "harvesting"
+			village.Experience += 10
+			messages = append(messages, fmt.Sprintf("%s assigned to harvest %s", v.Name, v.HarvestType))
+		}
+	}
+
+	// 2. Hire a guard (one per tick)
+	if len(village.ActiveGuards) < village.Level {
+		cost := 50 + village.Level*25
+		if goldRes, ok := player.ResourceStorageMap["Gold"]; ok && goldRes.Stock >= cost {
+			guard := GenerateGuard(village.Level)
+			guard.Hired = true
+			village.ActiveGuards = append(village.ActiveGuards, guard)
+			goldRes.Stock -= cost
+			player.ResourceStorageMap["Gold"] = goldRes
+			village.Experience += 50
+			messages = append(messages, fmt.Sprintf("Hired guard %s for %d Gold", guard.Name, cost))
+		}
+	}
+
+	// 3. Build a Wooden Wall (one per tick)
+	if len(village.Defenses) < village.Level {
+		lumberRes, hasLumber := player.ResourceStorageMap["Lumber"]
+		stoneRes, hasStone := player.ResourceStorageMap["Stone"]
+		if hasLumber && hasStone && lumberRes.Stock >= 50 && stoneRes.Stock >= 20 {
+			wall := models.Defense{
+				Name:    "Wooden Wall",
+				Level:   1,
+				Defense: 10,
+				Built:   true,
+				Type:    "wall",
+			}
+			village.Defenses = append(village.Defenses, wall)
+			village.DefenseLevel++
+			lumberRes.Stock -= 50
+			stoneRes.Stock -= 20
+			player.ResourceStorageMap["Lumber"] = lumberRes
+			player.ResourceStorageMap["Stone"] = stoneRes
+			village.Experience += 30
+			messages = append(messages, "Built a Wooden Wall")
+		}
+	}
+
+	// 4. Build a Spike Trap (one per tick)
+	maxTraps := 2 + village.Level/3
+	if len(village.Traps) < maxTraps {
+		ironRes, hasIron := player.ResourceStorageMap["Iron"]
+		boneRes, hasBone := player.ResourceStorageMap["Beast Bone"]
+		if hasIron && hasBone && ironRes.Stock >= 10 && boneRes.Stock >= 5 {
+			trap := models.Trap{
+				Name:        "Spike Trap",
+				Type:        "spike",
+				Damage:      15,
+				Duration:    3,
+				Remaining:   3,
+				TriggerRate: 60,
+			}
+			village.Traps = append(village.Traps, trap)
+			ironRes.Stock -= 10
+			boneRes.Stock -= 5
+			player.ResourceStorageMap["Iron"] = ironRes
+			player.ResourceStorageMap["Beast Bone"] = boneRes
+			village.Experience += 35
+			messages = append(messages, "Built a Spike Trap")
+		}
+	}
+
+	// 5. Recover injured guards
+	ProcessGuardRecovery(village)
+
+	// 6. Upgrade village if enough XP
+	UpgradeVillage(village)
+
+	return messages
 }

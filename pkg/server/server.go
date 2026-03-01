@@ -144,6 +144,18 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		}
 	}()
 
+	// Village manager ticker — automated village upkeep every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			result := s.engine.ProcessVillageManagerTicks()
+			if result != nil {
+				log.Printf("[VillageManager] Managed %d villages", result.VillagesManaged)
+			}
+		}
+	}()
+
 	// Auto-spawn default AI agents after a brief startup delay.
 	go s.agentMgr.SpawnDefaultAgents()
 

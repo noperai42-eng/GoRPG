@@ -713,14 +713,22 @@ func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
 			fmt.Printf("[AutoTide] Failed to save character %s: %v\n", vwo.CharacterName, err)
 		}
 
-		// Build broadcast messages for the owning player
+		// Build broadcast messages with contextual categories
 		msgs := []GameMessage{}
-		outcomeTag := "loot"
-		if !tideResult.Victory {
-			outcomeTag = "combat"
-		}
 		for _, m := range tideResult.Messages {
-			msgs = append(msgs, Msg(m, outcomeTag))
+			tag := "combat"
+			if strings.HasPrefix(m, "---") || strings.HasPrefix(m, "-- ") || strings.HasPrefix(m, "Defenders:") {
+				tag = "system"
+			} else if strings.HasPrefix(m, "VICTORY") || strings.HasPrefix(m, "Strong defense") {
+				tag = "loot"
+			} else if strings.HasPrefix(m, "DEFEAT") || strings.HasPrefix(m, "Village level reset") || strings.HasPrefix(m, "The village must") {
+				tag = "damage"
+			} else if strings.Contains(m, "Guard casualties") || strings.Contains(m, "perished") || strings.Contains(m, "been lost") || strings.Contains(m, "destroyed") || strings.Contains(m, "looted") {
+				tag = "debuff"
+			} else if strings.Contains(m, "Wave") && strings.Contains(m, "result:") {
+				tag = "narrative"
+			}
+			msgs = append(msgs, Msg(m, tag))
 		}
 
 		resp := GameResponse{
@@ -756,6 +764,70 @@ func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
 		return nil
 	}
 	return &AutoTideTickResult{TidesProcessed: tidesProcessed}
+}
+
+// VillageManagerTickResult holds the results of a village manager tick.
+type VillageManagerTickResult struct {
+	VillagesManaged int
+}
+
+// ProcessVillageManagerTicks runs automated village upkeep for all villages.
+func (e *Engine) ProcessVillageManagerTicks() *VillageManagerTickResult {
+	if e.store == nil {
+		return nil
+	}
+
+	villages, err := e.store.LoadAllVillages()
+	if err != nil {
+		fmt.Printf("[VillageManager] Failed to load villages: %v\n", err)
+		return nil
+	}
+
+	villagesManaged := 0
+
+	for _, vwo := range villages {
+		// Load the owning character
+		char, err := e.store.LoadCharacter(vwo.AccountID, vwo.CharacterName)
+		if err != nil {
+			fmt.Printf("[VillageManager] Failed to load character %s: %v\n", vwo.CharacterName, err)
+			continue
+		}
+
+		// Run the village manager tick
+		messages := game.ProcessVillageManagerTick(&vwo.Village, &char)
+		if len(messages) == 0 {
+			continue
+		}
+		villagesManaged++
+
+		// Save village back to DB
+		if err := e.store.SaveVillage(vwo.CharacterID, vwo.Village); err != nil {
+			fmt.Printf("[VillageManager] Failed to save village for %s: %v\n", vwo.CharacterName, err)
+		}
+
+		// Save character back to DB
+		if err := e.store.SaveCharacter(vwo.AccountID, char); err != nil {
+			fmt.Printf("[VillageManager] Failed to save character %s: %v\n", vwo.CharacterName, err)
+		}
+
+		// Update in-memory session data for online players
+		e.mu.RLock()
+		for _, sess := range e.sessions {
+			if sess.AccountID == vwo.AccountID && sess.Player != nil && sess.Player.Name == vwo.CharacterName {
+				if sess.GameState.Villages != nil {
+					sess.GameState.Villages[vwo.Village.Name] = vwo.Village
+				}
+				sess.Player.ResourceStorageMap = char.ResourceStorageMap
+				sess.GameState.CharactersMap[char.Name] = char
+			}
+		}
+		e.mu.RUnlock()
+	}
+
+	if villagesManaged == 0 {
+		return nil
+	}
+	return &VillageManagerTickResult{VillagesManaged: villagesManaged}
 }
 
 // broadcastToAccount sends a response to all sessions belonging to the given account ID.
