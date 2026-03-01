@@ -87,11 +87,11 @@ document.addEventListener('alpine:init', () => {
 
             // Handle broadcast messages (login, guardian defeat, etc.)
             // Batched with a short debounce to avoid rapid DOM mutations
-            if (resp.type === 'broadcast') {
+            if (resp.type === 'broadcast' || resp.type === 'auto_tide') {
                 if (resp.messages && resp.messages.length > 0) {
                     const batchMsgs = resp.messages
                         .filter(m => m.text && m.text.trim())
-                        .map(m => ({ text: m.text, category: m.category || 'broadcast' }));
+                        .map(m => ({ text: m.text, category: m.category || (resp.type === 'auto_tide' ? 'combat' : 'broadcast') }));
                     if (batchMsgs.length > 0) {
                         this._broadcastQueue.push(batchMsgs);
                         clearTimeout(this._broadcastTimer);
@@ -100,6 +100,12 @@ document.addEventListener('alpine:init', () => {
                         }, 300);
                     }
                 }
+                // For auto_tide, also update player and village state
+                if (resp.type === 'auto_tide' && resp.state) {
+                    if (resp.state.player) this.player = resp.state.player;
+                    if (resp.state.village) this.village = resp.state.village;
+                }
+                if (resp.type === 'broadcast') return;
                 return;
             }
 

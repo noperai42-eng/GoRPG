@@ -507,6 +507,105 @@ func handleTownScreen(options []engine.MenuOption) engine.GameCommand {
 	return selectCmd("home")
 }
 
+// --- Village Manager Strategy ---
+
+type VillageManagerStrategy struct {
+	turnCount int
+}
+
+func (s *VillageManagerStrategy) Name() string { return "village_manager" }
+
+func (s *VillageManagerStrategy) Decide(screen string, options []engine.MenuOption) engine.GameCommand {
+	s.turnCount++
+	switch {
+	case screen == "main_menu":
+		// 50% village, 25% hunt, 15% harvest, 10% auto-play
+		return mainMenuChoice(
+			[]string{"10", "3", "1", "8"},
+			[]int{50, 25, 15, 10},
+			options,
+		)
+	case screen == "combat":
+		// Auto-fight for efficiency
+		return selectCmd("6")
+	case strings.HasPrefix(screen, "combat_"):
+		return handleCombatSubScreen(screen, options)
+	case screen == "village_main":
+		return handleVillageManagerVillageScreen(options)
+	case screen == "village_hire_guard":
+		// Pick first affordable guard, else back
+		if opt := pickFirst(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_assign_task":
+		// Pick first available villager, else back
+		if opt := pickFirst(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_batch_assign":
+		// Pick random resource
+		if opt := pickRandom(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_assign_resource":
+		// Pick random resource
+		if opt := pickRandom(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_build_defense":
+		// Build walls
+		if opt := findOption(options, "1"); opt != nil {
+			return selectCmd("1")
+		}
+		return selectCmd("back")
+	case screen == "village_build_walls", screen == "village_craft_traps":
+		// Pick first available
+		if opt := pickFirst(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_monster_tide":
+		// Start defense
+		if opt := pickFirst(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_tide_wave":
+		// Advance waves
+		if opt := findOption(options, "next"); opt != nil {
+			return selectCmd("next")
+		}
+		if opt := pickFirst(options); opt != nil {
+			return selectCmd(opt.Key)
+		}
+		return selectCmd("back")
+	case screen == "village_tide_complete":
+		// Back to village
+		return selectCmd("back")
+	case strings.HasPrefix(screen, "village_"):
+		return defaultNavigation(screen, options)
+	case screen == "autoplay_speed":
+		return selectCmd("4") // turbo
+	case screen == "autoplay_menu":
+		return selectCmd("0")
+	default:
+		return handleCommonScreen(screen, options)
+	}
+}
+
+// handleVillageManagerVillageScreen picks village actions with weighted priorities.
+func handleVillageManagerVillageScreen(options []engine.MenuOption) engine.GameCommand {
+	// Weighted village actions: defend tide (25%), hire guards (20%), assign tasks (20%),
+	// build defenses (15%), crafting (10%), manage guards (5%), view (3%), back (2%)
+	keys := []string{"7", "3", "2", "5", "4", "8", "1", "0"}
+	weights := []int{25, 20, 20, 15, 10, 5, 3, 2}
+	return mainMenuChoice(keys, weights, options)
+}
+
 // NewStrategy creates a Strategy by name. Returns nil for unknown names.
 func NewStrategy(name string) Strategy {
 	switch name {
@@ -520,6 +619,8 @@ func NewStrategy(name string) Strategy {
 		return &ArenaGrinderStrategy{}
 	case "completionist":
 		return &CompletionistStrategy{}
+	case "village_manager":
+		return &VillageManagerStrategy{}
 	default:
 		return nil
 	}

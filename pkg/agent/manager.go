@@ -28,6 +28,7 @@ var DefaultAgents = []CreateAgentRequest{
 	{Name: "Shadowdelve", Strategy: "dungeon_crawler", MinDelay: 500, MaxDelay: 2000},
 	{Name: "Ironclash", Strategy: "arena_grinder", MinDelay: 500, MaxDelay: 2000},
 	{Name: "Wanderlux", Strategy: "completionist", MinDelay: 500, MaxDelay: 2000},
+	{Name: "Villoria", Strategy: "village_manager", MinDelay: 500, MaxDelay: 2000},
 }
 
 // Manager handles the lifecycle of AI agents.
@@ -64,7 +65,7 @@ func (m *Manager) CreateAgent(req CreateAgentRequest) (*AgentInfo, error) {
 	// Validate strategy.
 	strategy := NewStrategy(req.Strategy)
 	if strategy == nil {
-		return nil, fmt.Errorf("unknown strategy: %q (valid: hunter, harvester, dungeon_crawler, arena_grinder, completionist)", req.Strategy)
+		return nil, fmt.Errorf("unknown strategy: %q (valid: hunter, harvester, dungeon_crawler, arena_grinder, completionist, village_manager)", req.Strategy)
 	}
 
 	if req.Name == "" {

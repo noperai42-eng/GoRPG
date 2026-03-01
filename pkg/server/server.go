@@ -132,6 +132,18 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		}
 	}()
 
+	// Auto-tide ticker — process automatic monster tides every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			result := s.engine.ProcessAutoTideTick()
+			if result != nil {
+				log.Printf("[AutoTide] Processed %d tides", result.TidesProcessed)
+			}
+		}
+	}()
+
 	// Auto-spawn default AI agents after a brief startup delay.
 	go s.agentMgr.SpawnDefaultAgents()
 

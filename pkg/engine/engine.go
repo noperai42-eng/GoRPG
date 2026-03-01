@@ -662,6 +662,122 @@ func (e *Engine) ProcessEvolutionTick() *EvolutionTickResult {
 	return &EvolutionTickResult{Events: allEvents}
 }
 
+// AutoTideTickResult holds the results of an auto-tide processing tick.
+type AutoTideTickResult struct {
+	TidesProcessed int
+}
+
+// ProcessAutoTideTick checks all villages and runs auto-tides for those whose
+// tide interval has elapsed.
+func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
+	if e.store == nil {
+		return nil
+	}
+
+	villages, err := e.store.LoadAllVillages()
+	if err != nil {
+		fmt.Printf("[AutoTide] Failed to load villages: %v\n", err)
+		return nil
+	}
+
+	now := time.Now().Unix()
+	tidesProcessed := 0
+
+	for _, vwo := range villages {
+		interval := int64(vwo.Village.TideInterval)
+		if interval <= 0 {
+			interval = 3600
+		}
+		if vwo.Village.LastTideTime+interval >= now {
+			continue
+		}
+
+		// Load the owning character
+		char, err := e.store.LoadCharacter(vwo.AccountID, vwo.CharacterName)
+		if err != nil {
+			fmt.Printf("[AutoTide] Failed to load character %s: %v\n", vwo.CharacterName, err)
+			continue
+		}
+
+		// Run the auto-tide
+		tideResult := game.ProcessAutoTide(&vwo.Village, &char)
+		tidesProcessed++
+
+		// Save village back to DB
+		if err := e.store.SaveVillage(vwo.CharacterID, vwo.Village); err != nil {
+			fmt.Printf("[AutoTide] Failed to save village for %s: %v\n", vwo.CharacterName, err)
+		}
+
+		// Save character back to DB
+		if err := e.store.SaveCharacter(vwo.AccountID, char); err != nil {
+			fmt.Printf("[AutoTide] Failed to save character %s: %v\n", vwo.CharacterName, err)
+		}
+
+		// Build broadcast messages for the owning player
+		msgs := []GameMessage{}
+		outcomeTag := "loot"
+		if !tideResult.Victory {
+			outcomeTag = "combat"
+		}
+		for _, m := range tideResult.Messages {
+			msgs = append(msgs, Msg(m, outcomeTag))
+		}
+
+		resp := GameResponse{
+			Type:     "auto_tide",
+			Messages: msgs,
+			State: &StateData{
+				Screen:  "auto_tide",
+				Player:  MakePlayerState(&char),
+				Village: MakeVillageView(&vwo.Village),
+			},
+		}
+
+		// Send to the owning player's session if they're online
+		e.broadcastToAccount(vwo.AccountID, resp)
+
+		// Update in-memory session data for online players
+		e.mu.RLock()
+		for _, sess := range e.sessions {
+			if sess.AccountID == vwo.AccountID && sess.Player != nil && sess.Player.Name == vwo.CharacterName {
+				// Update village in session
+				if sess.GameState.Villages != nil {
+					sess.GameState.Villages[vwo.Village.Name] = vwo.Village
+				}
+				// Update character resources in session
+				sess.Player.ResourceStorageMap = char.ResourceStorageMap
+				sess.GameState.CharactersMap[char.Name] = char
+			}
+		}
+		e.mu.RUnlock()
+	}
+
+	if tidesProcessed == 0 {
+		return nil
+	}
+	return &AutoTideTickResult{TidesProcessed: tidesProcessed}
+}
+
+// broadcastToAccount sends a response to all sessions belonging to the given account ID.
+func (e *Engine) broadcastToAccount(accountID int64, resp GameResponse) {
+	e.mu.RLock()
+	var targetSessionIDs []string
+	for id, sess := range e.sessions {
+		if sess.AccountID == accountID {
+			targetSessionIDs = append(targetSessionIDs, id)
+		}
+	}
+	e.mu.RUnlock()
+
+	e.subMu.RLock()
+	defer e.subMu.RUnlock()
+	for _, sid := range targetSessionIDs {
+		if cb, ok := e.subscribers[sid]; ok {
+			go cb(resp)
+		}
+	}
+}
+
 // GetMostWanted returns the top N most dangerous monsters across all locations.
 func (e *Engine) GetMostWanted(limit int) []models.MostWantedEntry {
 	if e.store == nil {

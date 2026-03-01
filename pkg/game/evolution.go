@@ -216,16 +216,31 @@ func ProcessLocationEvolution(loc *models.Location, gs *models.GameState) []Evol
 	})
 
 	// Try rarity upgrade
-	if TryUpgradeRarity(winner) {
+	upgraded := TryUpgradeRarity(winner)
+	if upgraded {
 		events = append(events, EvolutionEvent{
 			EventType:    "upgrade",
 			LocationName: loc.Name,
 			Details:      fmt.Sprintf("%s upgraded to %s rarity!", winner.Name, RarityDisplayName(winner.Rarity)),
 		})
+
+		// Check if the upgraded monster should migrate to a harder zone
+		winnerCopy := *winner
+		if evt := MigrateMonster(&winnerCopy, loc, gs); evt != nil {
+			events = append(events, *evt)
+			// Replace the migrated monster's old slot with a fresh one
+			freshMob := GenerateBestMonster(gs, loc.LevelMax, loc.RarityMax)
+			freshMob.LocationName = loc.Name
+			loc.Monsters[winnerIdx] = freshMob
+			// The migrated monster was placed in the target location by MigrateMonster
+			winner = nil // signal that winner was already handled
+		}
 	}
 
-	// Place winner back
-	loc.Monsters[winnerIdx] = *winner
+	// Place winner back (if not migrated)
+	if winner != nil {
+		loc.Monsters[winnerIdx] = *winner
+	}
 
 	// Replace loser with a fresh monster
 	newMob := GenerateBestMonster(gs, loc.LevelMax, loc.RarityMax)
@@ -233,6 +248,56 @@ func ProcessLocationEvolution(loc *models.Location, gs *models.GameState) []Evol
 	loc.Monsters[loserIdx] = newMob
 
 	return events
+}
+
+// MigrateMonster checks if a monster has outgrown its location's rarity cap
+// and migrates it to a suitable harder zone. Returns an EvolutionEvent if
+// migration occurred, or nil if no migration was needed/possible.
+func MigrateMonster(monster *models.Monster, fromLoc *models.Location, gs *models.GameState) *EvolutionEvent {
+	rarityIdx := RarityIndex(monster.Rarity)
+
+	// No migration needed if location is uncapped or monster fits
+	if fromLoc.RarityMax == 0 || rarityIdx <= fromLoc.RarityMax {
+		return nil
+	}
+
+	// Find candidate locations that can hold this rarity
+	var candidates []string
+	for name, loc := range gs.GameLocations {
+		if name == fromLoc.Name {
+			continue
+		}
+		if loc.Type == "Base" {
+			continue
+		}
+		if len(loc.Monsters) == 0 {
+			continue
+		}
+		// Location must allow this rarity (uncapped or cap >= monster's rarity index)
+		if loc.RarityMax == 0 || loc.RarityMax >= rarityIdx {
+			candidates = append(candidates, name)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Pick a random target location
+	targetName := candidates[rand.Intn(len(candidates))]
+	targetLoc := gs.GameLocations[targetName]
+
+	// Replace a random monster in the target location
+	replaceIdx := rand.Intn(len(targetLoc.Monsters))
+	monster.LocationName = targetName
+	targetLoc.Monsters[replaceIdx] = *monster
+	gs.GameLocations[targetName] = targetLoc
+
+	return &EvolutionEvent{
+		EventType:    "migration",
+		LocationName: fromLoc.Name,
+		Details:      fmt.Sprintf("%s (%s) migrated from %s to %s", monster.Name, RarityDisplayName(monster.Rarity), fromLoc.Name, targetName),
+	}
 }
 
 // MigrateMonsterIDs assigns IDs and LocationNames to any monsters missing them.

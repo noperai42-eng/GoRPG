@@ -416,6 +416,43 @@ func (s *Store) LoadVillage(characterID int64, villageName string) (models.Villa
 	return village, nil
 }
 
+// VillageWithOwner pairs a village with its owning character/account info.
+type VillageWithOwner struct {
+	CharacterID   int64
+	AccountID     int64
+	CharacterName string
+	Village       models.Village
+}
+
+// LoadAllVillages retrieves all villages with their owning character/account info.
+func (s *Store) LoadAllVillages() ([]VillageWithOwner, error) {
+	rows, err := s.db.Query(
+		`SELECT v.character_id, c.account_id, c.name, v.data
+		 FROM villages v JOIN characters c ON v.character_id = c.id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all villages: %w", err)
+	}
+	defer rows.Close()
+
+	var results []VillageWithOwner
+	for rows.Next() {
+		var vwo VillageWithOwner
+		var data string
+		if err := rows.Scan(&vwo.CharacterID, &vwo.AccountID, &vwo.CharacterName, &data); err != nil {
+			return nil, fmt.Errorf("failed to scan village row: %w", err)
+		}
+		if err := json.Unmarshal([]byte(data), &vwo.Village); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal village for char %d: %w", vwo.CharacterID, err)
+		}
+		results = append(results, vwo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+	return results, nil
+}
+
 // LoadVillageByCharName retrieves a village by joining the characters and
 // villages tables using account ID, character name, and village name.
 func (s *Store) LoadVillageByCharName(accountID int64, charName string, villageName string) (models.Village, error) {
