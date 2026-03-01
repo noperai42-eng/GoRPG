@@ -11,7 +11,7 @@ function townScreen() {
 
         get g() { return this.$store.game; },
         get t() { return this.$store.game.town; },
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
         get hasTown() { return this.t !== null; },
 
         get isTownScreen() {

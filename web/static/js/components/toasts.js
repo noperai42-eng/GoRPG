@@ -2,6 +2,23 @@
 function activityPanel() {
     return {
         expanded: true,
+        // Stable computed list — avoids creating new arrays in x-for expression
+        get displayGroups() {
+            const msgs = this.$store.game.recentMessages;
+            if (!msgs || msgs.length === 0) return [];
+            // Return last 10 in reverse order; slice+reverse on a plain array
+            const start = Math.max(0, msgs.length - 10);
+            const result = [];
+            for (let i = msgs.length - 1; i >= start; i--) {
+                result.push(msgs[i]);
+            }
+            return result;
+        },
+        // Single header message for a group (replaces nested x-if branching)
+        headerMsg(group) {
+            if (group.messages.length === 1) return group.messages[0];
+            return this.$store.game.groupHeader(group);
+        },
         categoryIcon(cat) {
             const icons = { combat: '\u2694', loot: '\uD83D\uDCE6', levelup: '\u2B06', heal: '\uD83D\uDC9A',
                 damage: '\uD83D\uDCA5', buff: '\u2728', debuff: '\uD83D\uDD3B', narrative: '\uD83D\uDCDC',

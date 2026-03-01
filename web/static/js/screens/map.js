@@ -1,7 +1,7 @@
 // Map screen Alpine component
 function mapScreen() {
     return {
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
 
         // Starter locations never had guardians
         _starterLocations: ['Home', 'Training Hall', 'Forest', 'Lake', 'Hills'],

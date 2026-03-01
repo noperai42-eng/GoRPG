@@ -144,6 +144,9 @@ func noCacheStaticHandler(next http.Handler) http.Handler {
 		if strings.HasSuffix(r.URL.Path, ".js") || strings.HasSuffix(r.URL.Path, ".css") {
 			// Cache for 1 hour; ?v= query params handle cache busting on deploy
 			w.Header().Set("Cache-Control", "public, max-age=3600")
+		} else if strings.HasSuffix(r.URL.Path, ".html") || r.URL.Path == "/" {
+			// Never cache HTML so fixes deploy immediately
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		}
 		next.ServeHTTP(w, r)
 	})

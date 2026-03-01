@@ -2,24 +2,28 @@
 function statsScreen() {
     return {
         subTab: 'mystats', // 'mystats' | 'leaderboard' | 'mostwanted'
-        _leaderboardLoaded: false,
-        _mostWantedLoaded: false,
 
         get g() { return this.$store.game; },
-        get p() { return this.$store.game.player; },
-        get stats() { return this.p ? this.p.stats : null; },
+        get p() { return this.$store.game.player || {}; },
+        get stats() { return (this.p && this.p.stats) ? this.p.stats : null; },
 
-        init() {
-            this.$watch('subTab', (val) => {
-                if (val === 'leaderboard' && !this._leaderboardLoaded) {
-                    this._leaderboardLoaded = true;
-                    this.g.fetchLeaderboard();
-                }
-                if (val === 'mostwanted' && !this._mostWantedLoaded) {
-                    this._mostWantedLoaded = true;
-                    this.g.fetchMostWanted();
-                }
-            });
+        // Called when the stats tab opens (x-init)
+        loadData() {
+            // Auto-fetch leaderboard on tab open
+            setTimeout(() => {
+                this.g.fetchLeaderboard();
+                this.g.fetchMostWanted();
+            }, 100);
+        },
+
+        switchToLeaderboard() {
+            this.subTab = 'leaderboard';
+            this.g.fetchLeaderboard();
+        },
+
+        switchToMostWanted() {
+            this.subTab = 'mostwanted';
+            this.g.fetchMostWanted();
         },
 
         // K/D ratio
@@ -37,10 +41,76 @@ function statsScreen() {
             return Math.round((this.stats.pvp_wins / total) * 100) + '%';
         },
 
-        // Kills by rarity entries
-        rarityEntries() {
-            if (!this.stats || !this.stats.kills_by_rarity) return [];
-            return Object.entries(this.stats.kills_by_rarity).sort((a, b) => b[1] - a[1]);
+        // Render kills by rarity as HTML (avoids x-for)
+        renderRarityTable() {
+            if (!this.stats || !this.stats.kills_by_rarity) return '';
+            const entries = Object.entries(this.stats.kills_by_rarity).sort((a, b) => b[1] - a[1]);
+            if (entries.length === 0) return '';
+            let html = '<div class="section-header">Kills by Rarity</div>';
+            for (const [rarity, count] of entries) {
+                html += `<div class="stat-row"><span class="stat-label">${this._esc(rarity)}</span><span class="stat-value">${count}</span></div>`;
+            }
+            return html;
+        },
+
+        // Render online players as HTML (avoids x-for)
+        renderOnlinePlayers() {
+            const players = this.g.onlinePlayers;
+            if (!players || players.length === 0) return '';
+            let html = '';
+            for (const op of players) {
+                html += `<div class="stat-row"><span class="stat-label">${this._esc(op.name)} (Lv ${op.level})</span><span class="stat-value">${this._esc(op.activity)}</span></div>`;
+            }
+            return html;
+        },
+
+        // Render leaderboard as HTML (avoids x-for)
+        renderLeaderboard() {
+            const entries = this.g.leaderboard || [];
+            if (entries.length === 0) return '';
+            const cat = this.g.leaderboardCategory;
+            const selfName = this.p ? this.p.name : '';
+            let html = '';
+            entries.forEach((entry, idx) => {
+                const isSelf = entry.character_name === selfName;
+                const rankCls = idx === 0 ? 'rank-gold' : idx === 1 ? 'rank-silver' : idx === 2 ? 'rank-bronze' : '';
+                const selfCls = isSelf ? ' leaderboard-self' : '';
+                const val = this.categoryValue(entry, cat);
+                html += `<div class="leaderboard-row${selfCls}">`;
+                html += `<span class="leaderboard-rank ${rankCls}">#${idx + 1}</span>`;
+                html += `<span class="leaderboard-name">${this._esc(entry.character_name)}</span>`;
+                html += `<span class="leaderboard-level">Lv ${entry.player_level}</span>`;
+                html += `<span class="leaderboard-score">${val}</span>`;
+                html += '</div>';
+            });
+            return html;
+        },
+
+        // Render most wanted as HTML (avoids x-for)
+        renderMostWanted() {
+            const entries = this.g.mostWanted || [];
+            if (entries.length === 0) return '';
+            let html = '';
+            entries.forEach((entry, idx) => {
+                const rankCls = idx === 0 ? 'rank-gold' : idx === 1 ? 'rank-silver' : idx === 2 ? 'rank-bronze' : '';
+                const rarCls = entry.rarity ? 'rarity-' + entry.rarity : 'rarity-common';
+                const rarLbl = this.rarityLabel(entry.rarity);
+                html += '<div class="leaderboard-row">';
+                html += `<span class="leaderboard-rank ${rankCls}">#${idx + 1}</span>`;
+                html += `<span class="most-wanted-rarity-badge ${rarCls}">${this._esc(rarLbl)}</span>`;
+                html += `<span class="leaderboard-name">${this._esc(entry.name)}</span>`;
+                html += `<span class="leaderboard-level">Lv ${entry.level}</span>`;
+                html += `<span class="most-wanted-location">${this._esc(entry.location_name)}</span>`;
+                html += `<span class="leaderboard-score">${entry.player_kills || 0} player kills</span>`;
+                html += '</div>';
+            });
+            return html;
+        },
+
+        // HTML-escape helper
+        _esc(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         },
 
         // Leaderboard helpers
@@ -54,11 +124,6 @@ function statsScreen() {
 
         get currentCategory() {
             return this.g.leaderboardCategory;
-        },
-
-        categoryLabel(cat) {
-            const labels = { kills: 'Kills', level: 'Level', bosses: 'Bosses', pvp_wins: 'PvP', combo: 'Combo', dungeons: 'Dungeons', floors: 'Floors', rooms: 'Rooms' };
-            return labels[cat] || cat;
         },
 
         categoryValue(entry, cat) {

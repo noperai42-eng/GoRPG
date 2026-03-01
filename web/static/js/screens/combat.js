@@ -3,7 +3,7 @@ function combatScreen() {
     return {
         get g() { return this.$store.game; },
         get c() { return this.$store.game.combat; },
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
 
         get playerInitials() {
             if (!this.p) return '?';

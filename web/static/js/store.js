@@ -14,6 +14,10 @@ document.addEventListener('alpine:init', () => {
         combatLog: [],           // messages during combat
         recentMessages: [],      // event groups: [{id, timestamp, messages, collapsed, isNew}]
         _groupId: 0,
+        _broadcastQueue: [],     // pending broadcast groups to batch
+        _broadcastTimer: null,   // debounce timer for broadcast batching
+        _pendingOnlinePlayers: null, // pending presence update
+        _presenceTimer: null,    // debounce timer for presence updates
         onlinePlayers: [],       // [{name, level, activity}]
         pendingAction: null,     // for two-step command chains
         dropdown: null,          // 'items' | 'skills' | null - combat dropdown
@@ -68,30 +72,32 @@ document.addEventListener('alpine:init', () => {
             const isHarvestPush = resp.type === 'harvest';
             const isPresencePush = resp.type === 'presence';
 
-            // Handle presence updates
+            // Handle presence updates (debounced to prevent rapid x-for re-renders)
             if (resp.state && resp.state.online_players) {
-                this.onlinePlayers = resp.state.online_players;
+                this._pendingOnlinePlayers = resp.state.online_players;
+                clearTimeout(this._presenceTimer);
+                this._presenceTimer = setTimeout(() => {
+                    if (this._pendingOnlinePlayers) {
+                        this.onlinePlayers = this._pendingOnlinePlayers;
+                        this._pendingOnlinePlayers = null;
+                    }
+                }, 500);
             }
             if (isPresencePush) return;
 
             // Handle broadcast messages (login, guardian defeat, etc.)
+            // Batched with a short debounce to avoid rapid DOM mutations
             if (resp.type === 'broadcast') {
                 if (resp.messages && resp.messages.length > 0) {
                     const batchMsgs = resp.messages
                         .filter(m => m.text && m.text.trim())
                         .map(m => ({ text: m.text, category: m.category || 'broadcast' }));
                     if (batchMsgs.length > 0) {
-                        const gid = ++this._groupId;
-                        this.recentMessages.push({
-                            id: gid, timestamp: Date.now(), messages: batchMsgs,
-                            collapsed: false, isNew: true
-                        });
-                        setTimeout(() => {
-                            const g = this.recentMessages.find(g => g.id === gid);
-                            if (g) g.isNew = false;
-                        }, 4000);
-                        if (this.recentMessages.length > 15)
-                            this.recentMessages = this.recentMessages.slice(-15);
+                        this._broadcastQueue.push(batchMsgs);
+                        clearTimeout(this._broadcastTimer);
+                        this._broadcastTimer = setTimeout(() => {
+                            this._flushBroadcasts();
+                        }, 300);
                     }
                 }
                 return;
@@ -298,9 +304,13 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
-            // Default - stay on current tab or go to hub
+            // Default - only switch to hub if currently on a server-driven tab
+            // Don't override client-only tabs (stats, arena) that the user manually navigated to
             if (s === 'main_menu' || s === 'harvest_select' || s === 'player_stats' || s === 'discovered_locations') {
-                this.activeTab = 'hub';
+                const clientOnlyTabs = ['stats', 'arena'];
+                if (!clientOnlyTabs.includes(this.activeTab)) {
+                    this.activeTab = 'hub';
+                }
             }
         },
 
@@ -365,6 +375,27 @@ document.addEventListener('alpine:init', () => {
                 this.arena = data;
             })
             .catch(() => { this.arena = { entries: [], champion: null }; });
+        },
+
+        // Flush queued broadcast messages in a single reactive update
+        _flushBroadcasts() {
+            const queue = this._broadcastQueue;
+            this._broadcastQueue = [];
+            if (queue.length === 0) return;
+            for (const batchMsgs of queue) {
+                const gid = ++this._groupId;
+                this.recentMessages.push({
+                    id: gid, timestamp: Date.now(), messages: batchMsgs,
+                    collapsed: false, isNew: true
+                });
+                setTimeout(() => {
+                    const g = this.recentMessages.find(g => g.id === gid);
+                    if (g) g.isNew = false;
+                }, 4000);
+            }
+            if (this.recentMessages.length > 15) {
+                this.recentMessages = this.recentMessages.slice(-15);
+            }
         },
 
         // Pick the most interesting message from a group as its header

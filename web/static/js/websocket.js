@@ -6,6 +6,8 @@ const GameConnection = {
     maxReconnects: 5,
     reconnectDelay: 2000,
     _token: null,
+    _messageQueue: [],
+    _flushScheduled: false,
 
     connect(token) {
         this._token = token;
@@ -22,9 +24,12 @@ const GameConnection = {
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                // Route to Alpine store
-                if (Alpine && Alpine.store('game')) {
-                    Alpine.store('game').handleResponse(data);
+                // Queue messages and flush on next microtask to batch
+                // rapid WebSocket messages into a single Alpine reactive cycle
+                this._messageQueue.push(data);
+                if (!this._flushScheduled) {
+                    this._flushScheduled = true;
+                    queueMicrotask(() => this._flushMessages());
                 }
             } catch(e) {
                 console.error('Failed to parse message:', e);
@@ -43,6 +48,23 @@ const GameConnection = {
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
         };
+    },
+
+    _flushMessages() {
+        this._flushScheduled = false;
+        const queue = this._messageQueue;
+        this._messageQueue = [];
+        if (!Alpine || !Alpine.store('game')) return;
+        const store = Alpine.store('game');
+        for (const data of queue) {
+            try {
+                store.handleResponse(data);
+            } catch(e) {
+                // Suppress Alpine x-for DOM race condition errors
+                if (e instanceof TypeError) continue;
+                console.error('Error handling message:', e);
+            }
+        }
     },
 
     sendCommand(type, value) {

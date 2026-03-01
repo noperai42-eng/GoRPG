@@ -14,7 +14,7 @@ import (
 )
 
 // Version is set at build time via -ldflags.
-var Version = "dev"
+var Version = "0.3.0"
 
 func main() {
 	dbPath := flag.String("db", "game.db", "path to SQLite database file")

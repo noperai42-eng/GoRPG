@@ -14,7 +14,7 @@ function villageScreen() {
 
         get g() { return this.$store.game; },
         get v() { return this.$store.game.village; },
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
         get hasVillage() { return this.v !== null; },
 
         get isVillageScreen() {

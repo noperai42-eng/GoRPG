@@ -4,7 +4,7 @@ function hubScreen() {
         equipSlots: ['Head', 'Chest', 'Legs', 'Feet', 'Hands', 'Main Hand', 'Off Hand', 'Accessory'],
         selectedSlot: null,
 
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
         get hasAutoplay() {
             const s = this.$store.game.serverScreen;
             return s && s.startsWith('autoplay_');

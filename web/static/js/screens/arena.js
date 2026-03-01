@@ -2,7 +2,7 @@
 function arenaScreen() {
     return {
         get g() { return this.$store.game; },
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
 
         init() {
             this.g.fetchArena();

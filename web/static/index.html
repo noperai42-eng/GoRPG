@@ -5,18 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RPG Game</title>
     <style>[x-cloak] { display: none !important; }</style>
-    <link rel="stylesheet" href="css/variables.css?v=6">
-    <link rel="stylesheet" href="css/layout.css?v=6">
-    <link rel="stylesheet" href="css/auth.css?v=6">
-    <link rel="stylesheet" href="css/components.css?v=6">
-    <link rel="stylesheet" href="css/hub.css?v=6">
-    <link rel="stylesheet" href="css/map.css?v=6">
-    <link rel="stylesheet" href="css/combat.css?v=6">
-    <link rel="stylesheet" href="css/village.css?v=6">
-    <link rel="stylesheet" href="css/quests.css?v=6">
-    <link rel="stylesheet" href="css/town.css?v=6">
-    <link rel="stylesheet" href="css/dungeon.css?v=6">
-    <link rel="stylesheet" href="css/stats.css?v=6">
+    <link rel="stylesheet" href="css/variables.css?v=11">
+    <link rel="stylesheet" href="css/layout.css?v=11">
+    <link rel="stylesheet" href="css/auth.css?v=11">
+    <link rel="stylesheet" href="css/components.css?v=11">
+    <link rel="stylesheet" href="css/hub.css?v=11">
+    <link rel="stylesheet" href="css/map.css?v=11">
+    <link rel="stylesheet" href="css/combat.css?v=11">
+    <link rel="stylesheet" href="css/village.css?v=11">
+    <link rel="stylesheet" href="css/quests.css?v=11">
+    <link rel="stylesheet" href="css/town.css?v=11">
+    <link rel="stylesheet" href="css/dungeon.css?v=11">
+    <link rel="stylesheet" href="css/stats.css?v=11">
 </head>
 <body x-data x-cloak>
 <div id="app">
@@ -201,7 +201,7 @@
 
             <!-- ===== HUB TAB ===== -->
             <div class="screen-container" x-show="$store.game.activeTab === 'hub' && !$store.game.inCombat" x-data="hubScreen()">
-                <template x-if="p">
+                <template x-if="$store.game.player">
                     <div class="hub-layout">
                         <!-- Left: Character -->
                         <div class="hub-character">
@@ -298,7 +298,7 @@
                             </div>
 
                             <!-- Skills -->
-                            <div class="card" x-show="p.skills && p.skills.length > 0">
+                            <div class="card" x-show="p && p.skills && p.skills.length > 0">
                                 <div class="section-header">Skills</div>
                                 <div class="skill-list">
                                     <template x-for="skill in p.skills" :key="skill.name">
@@ -327,7 +327,7 @@
                             </div>
 
                             <!-- Resources -->
-                            <div class="card" x-show="p.resources">
+                            <div class="card" x-show="p && p.resources">
                                 <div class="section-header">Resources</div>
                                 <div class="resource-grid">
                                     <template x-for="[name, count] in Object.entries(p.resources || {})" :key="name">
@@ -340,7 +340,7 @@
                             </div>
 
                             <!-- Buildings -->
-                            <div class="card" x-show="p.buildings && p.buildings.length > 0">
+                            <div class="card" x-show="p && p.buildings && p.buildings.length > 0">
                                 <div class="section-header">Buildings</div>
                                 <template x-for="b in p.buildings" :key="b">
                                     <div class="stat-row"><span class="stat-label" x-text="b"></span><span class="stat-value">&#x2713;</span></div>
@@ -370,7 +370,7 @@
                         </div>
                     </div>
                 </template>
-                <div x-show="!p" style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading...</div>
+                <div x-show="!$store.game.player" style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading...</div>
             </div>
 
             <!-- ===== MAP TAB ===== -->
@@ -796,7 +796,8 @@
             </div>
 
             <!-- ===== STATS TAB ===== -->
-            <div class="screen-container" x-show="$store.game.activeTab === 'stats' && !$store.game.inCombat" x-data="statsScreen()">
+            <template x-if="$store.game.activeTab === 'stats' && !$store.game.inCombat">
+            <div class="screen-container" x-data="statsScreen()" x-init="loadData()">
                 <div class="stats-header">
                     <h2>Stats</h2>
                 </div>
@@ -804,90 +805,75 @@
                 <!-- Sub-tabs -->
                 <div class="sub-tabs">
                     <button class="sub-tab" :class="{ active: subTab === 'mystats' }" @click="subTab = 'mystats'">My Stats</button>
-                    <button class="sub-tab" :class="{ active: subTab === 'leaderboard' }" @click="subTab = 'leaderboard'">Leaderboard</button>
-                    <button class="sub-tab" :class="{ active: subTab === 'mostwanted' }" @click="subTab = 'mostwanted'">Most Wanted</button>
+                    <button class="sub-tab" :class="{ active: subTab === 'leaderboard' }" @click="switchToLeaderboard()">Leaderboard</button>
+                    <button class="sub-tab" :class="{ active: subTab === 'mostwanted' }" @click="switchToMostWanted()">Most Wanted</button>
                 </div>
 
                 <!-- My Stats -->
                 <div x-show="subTab === 'mystats'" class="stats-content">
-                    <template x-if="stats">
-                        <div>
-                            <!-- Combat Stats -->
-                            <div class="stats-grid">
-                                <div class="card">
-                                    <div class="section-header">Combat</div>
-                                    <div class="stat-row"><span class="stat-label">Total Kills</span><span class="stat-value" x-text="stats.total_kills"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Total Deaths</span><span class="stat-value" x-text="stats.total_deaths"></span></div>
-                                    <div class="stat-row"><span class="stat-label">K/D Ratio</span><span class="stat-value" x-text="kdRatio()"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Total XP Earned</span><span class="stat-value" x-text="stats.total_xp_earned"></span></div>
-                                </div>
-                                <div class="card">
-                                    <div class="section-header">Combo</div>
-                                    <div class="stat-row"><span class="stat-label">Current Combo</span><span class="stat-value" x-text="stats.current_combo"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Highest Combo</span><span class="stat-value" x-text="stats.highest_combo"></span></div>
-                                </div>
+                    <div x-show="stats">
+                        <!-- Combat Stats -->
+                        <div class="stats-grid">
+                            <div class="card">
+                                <div class="section-header">Combat</div>
+                                <div class="stat-row"><span class="stat-label">Total Kills</span><span class="stat-value" x-text="stats ? stats.total_kills : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Total Deaths</span><span class="stat-value" x-text="stats ? stats.total_deaths : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">K/D Ratio</span><span class="stat-value" x-text="kdRatio()"></span></div>
+                                <div class="stat-row"><span class="stat-label">Total XP Earned</span><span class="stat-value" x-text="stats ? stats.total_xp_earned : 0"></span></div>
                             </div>
-
-                            <div class="stats-grid" style="margin-top: 0.75rem;">
-                                <div class="card">
-                                    <div class="section-header">PvP</div>
-                                    <div class="stat-row"><span class="stat-label">Wins</span><span class="stat-value" x-text="stats.pvp_wins"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Losses</span><span class="stat-value" x-text="stats.pvp_losses"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" x-text="pvpWinRate()"></span></div>
-                                </div>
-                                <div class="card">
-                                    <div class="section-header">Progression</div>
-                                    <div class="stat-row"><span class="stat-label">Bosses Killed</span><span class="stat-value" x-text="stats.bosses_killed"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Dungeons Cleared</span><span class="stat-value" x-text="stats.dungeons_cleared"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Dungeons Entered</span><span class="stat-value" x-text="stats.dungeons_entered"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Floors Cleared</span><span class="stat-value" x-text="stats.floors_cleared"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Rooms Explored</span><span class="stat-value" x-text="stats.rooms_explored"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Treasures Found</span><span class="stat-value" x-text="stats.treasures_found"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Hidden Chests</span><span class="stat-value" x-text="stats.hidden_chests_found"></span></div>
-                                    <div class="stat-row"><span class="stat-label">Traps Triggered</span><span class="stat-value" x-text="stats.traps_triggered"></span></div>
-                                </div>
-                            </div>
-
-                            <!-- Kills by Rarity -->
-                            <div class="card" style="margin-top: 0.75rem;" x-show="rarityEntries().length > 0">
-                                <div class="section-header">Kills by Rarity</div>
-                                <template x-for="[rarity, count] in rarityEntries()" :key="rarity">
-                                    <div class="stat-row"><span class="stat-label" x-text="rarity"></span><span class="stat-value" x-text="count"></span></div>
-                                </template>
+                            <div class="card">
+                                <div class="section-header">Combo</div>
+                                <div class="stat-row"><span class="stat-label">Current Combo</span><span class="stat-value" x-text="stats ? stats.current_combo : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Highest Combo</span><span class="stat-value" x-text="stats ? stats.highest_combo : 0"></span></div>
                             </div>
                         </div>
-                    </template>
+
+                        <div class="stats-grid" style="margin-top: 0.75rem;">
+                            <div class="card">
+                                <div class="section-header">PvP</div>
+                                <div class="stat-row"><span class="stat-label">Wins</span><span class="stat-value" x-text="stats ? stats.pvp_wins : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Losses</span><span class="stat-value" x-text="stats ? stats.pvp_losses : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" x-text="pvpWinRate()"></span></div>
+                            </div>
+                            <div class="card">
+                                <div class="section-header">Progression</div>
+                                <div class="stat-row"><span class="stat-label">Bosses Killed</span><span class="stat-value" x-text="stats ? stats.bosses_killed : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Dungeons Cleared</span><span class="stat-value" x-text="stats ? stats.dungeons_cleared : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Dungeons Entered</span><span class="stat-value" x-text="stats ? stats.dungeons_entered : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Floors Cleared</span><span class="stat-value" x-text="stats ? stats.floors_cleared : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Rooms Explored</span><span class="stat-value" x-text="stats ? stats.rooms_explored : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Treasures Found</span><span class="stat-value" x-text="stats ? stats.treasures_found : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Hidden Chests</span><span class="stat-value" x-text="stats ? stats.hidden_chests_found : 0"></span></div>
+                                <div class="stat-row"><span class="stat-label">Traps Triggered</span><span class="stat-value" x-text="stats ? stats.traps_triggered : 0"></span></div>
+                            </div>
+                        </div>
+
+                        <!-- Kills by Rarity -->
+                        <div class="card" style="margin-top: 0.75rem;" x-html="renderRarityTable()"></div>
+                    </div>
                     <div x-show="!stats" style="text-align: center; padding: 2rem; color: var(--text-muted);">No stats available yet. Go fight some monsters!</div>
 
-                    <!-- Online Players -->
+                    <!-- Online Players rendered via x-html to avoid x-for -->
                     <div class="card" style="margin-top: 0.75rem;" x-show="$store.game.onlinePlayers.length > 0">
                         <div class="section-header">Online Players</div>
-                        <template x-for="op in $store.game.onlinePlayers" :key="op.name">
-                            <div class="stat-row">
-                                <span class="stat-label" x-text="op.name + ' (Lv ' + op.level + ')'"></span>
-                                <span class="stat-value" x-text="op.activity"></span>
-                            </div>
-                        </template>
+                        <div x-html="renderOnlinePlayers()"></div>
                     </div>
                 </div>
 
                 <!-- Leaderboard -->
                 <div x-show="subTab === 'leaderboard'" class="stats-content">
                     <div class="leaderboard-categories">
-                        <template x-for="cat in ['kills', 'level', 'bosses', 'pvp_wins', 'combo', 'dungeons', 'floors', 'rooms']" :key="cat">
-                            <button class="leaderboard-cat-btn" :class="{ active: currentCategory === cat }" @click="switchCategory(cat)" x-text="categoryLabel(cat)"></button>
-                        </template>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'kills' }" @click="switchCategory('kills')">Kills</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'level' }" @click="switchCategory('level')">Level</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'bosses' }" @click="switchCategory('bosses')">Bosses</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'pvp_wins' }" @click="switchCategory('pvp_wins')">PvP</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'combo' }" @click="switchCategory('combo')">Combo</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'dungeons' }" @click="switchCategory('dungeons')">Dungeons</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'floors' }" @click="switchCategory('floors')">Floors</button>
+                        <button class="leaderboard-cat-btn" :class="{ active: currentCategory === 'rooms' }" @click="switchCategory('rooms')">Rooms</button>
                     </div>
-                    <div class="leaderboard-table">
-                        <template x-for="(entry, idx) in leaderboardEntries" :key="entry.character_name">
-                            <div class="leaderboard-row" :class="{ 'leaderboard-self': isSelf(entry) }">
-                                <span class="leaderboard-rank" :class="rankClass(idx)" x-text="'#' + (idx + 1)"></span>
-                                <span class="leaderboard-name" x-text="entry.character_name"></span>
-                                <span class="leaderboard-level" x-text="'Lv ' + entry.player_level"></span>
-                                <span class="leaderboard-score" x-text="categoryValue(entry, currentCategory)"></span>
-                            </div>
-                        </template>
-                    </div>
+                    <!-- Leaderboard rendered via x-html to avoid x-for -->
+                    <div class="leaderboard-table" x-html="renderLeaderboard()"></div>
                     <div class="leaderboard-empty" x-show="leaderboardEntries.length === 0">No leaderboard entries yet.</div>
                 </div>
 
@@ -897,22 +883,13 @@
                         <span style="color: var(--text-secondary); font-size: 0.85rem;">Top 10 Most Dangerous Monsters</span>
                         <button class="btn btn-ghost btn-sm" @click="refreshMostWanted()">Refresh</button>
                     </div>
-                    <div class="leaderboard-table">
-                        <template x-for="(entry, idx) in mostWantedEntries" :key="entry.monster_id || idx">
-                            <div class="leaderboard-row">
-                                <span class="leaderboard-rank" :class="rankClass(idx)" x-text="'#' + (idx + 1)"></span>
-                                <span class="most-wanted-rarity-badge" :class="rarityClass(entry.rarity)" x-text="rarityLabel(entry.rarity)"></span>
-                                <span class="leaderboard-name" x-text="entry.name"></span>
-                                <span class="leaderboard-level" x-text="'Lv ' + entry.level"></span>
-                                <span class="most-wanted-location" x-text="entry.location_name"></span>
-                                <span class="leaderboard-score" :title="'Player kills: ' + entry.player_kills + ' | Monster kills: ' + (entry.monster_kills || 0)" x-text="totalKills(entry) + ' player kills'"></span>
-                            </div>
-                        </template>
-                    </div>
+                    <!-- Most Wanted rendered via x-html to avoid x-for -->
+                    <div class="leaderboard-table" x-html="renderMostWanted()"></div>
                     <div class="leaderboard-empty" x-show="mostWantedEntries.length === 0">No notorious monsters yet. Monsters gain notoriety by killing players.</div>
                 </div>
 
             </div>
+            </template>
 
             <!-- ===== ARENA TAB ===== -->
             <div class="screen-container" x-show="$store.game.activeTab === 'arena' && !$store.game.inCombat" x-data="arenaScreen()">
@@ -1114,43 +1091,30 @@
         </div><!-- end tab content -->
 
         <!-- ACTIVITY PANEL -->
-        <div class="activity-panel" x-show="!$store.game.inCombat && $store.game.recentMessages.length > 0" x-data="activityPanel()" x-transition.opacity>
+        <div class="activity-panel" x-show="!$store.game.inCombat && $store.game.recentMessages.length > 0" x-data="activityPanel()">
             <div class="activity-panel-header" @click="expanded = !expanded">
                 <span>Activity</span>
                 <span class="activity-panel-count" x-text="$store.game.recentMessages.length"></span>
                 <span x-text="expanded ? '\u25BC' : '\u25B2'" style="margin-left: auto; font-size: 0.7rem;"></span>
             </div>
-            <div class="activity-panel-body" x-show="expanded" x-transition>
-                <template x-for="group in $store.game.recentMessages.slice(-10).reverse()" :key="group.id">
-                    <div>
-                        <!-- Single-message: flat row -->
-                        <template x-if="group.messages.length === 1">
-                            <div class="activity-item" :class="[group.messages[0].category, group.isNew ? 'activity-new' : '']">
-                                <span class="activity-icon" x-text="categoryIcon(group.messages[0].category)"></span>
-                                <span class="activity-text" x-text="group.messages[0].text"></span>
-                                <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
-                            </div>
-                        </template>
-                        <!-- Multi-message: collapsible -->
-                        <template x-if="group.messages.length > 1">
-                            <div class="activity-group" :class="[$store.game.groupHeader(group).category, group.isNew ? 'activity-new' : '']">
-                                <div class="activity-group-header" @click="$store.game.toggleGroup(group.id)">
-                                    <span class="activity-icon" x-text="categoryIcon($store.game.groupHeader(group).category)"></span>
-                                    <span class="activity-text" x-text="$store.game.groupHeader(group).text"></span>
-                                    <span class="activity-group-count" x-text="group.messages.length"></span>
-                                    <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
-                                    <span class="activity-chevron" :class="{ open: !group.collapsed }" x-text="group.collapsed ? '\u25B6' : '\u25BC'"></span>
+            <div class="activity-panel-body" x-show="expanded">
+                <template x-for="group in displayGroups" :key="group.id">
+                    <div class="activity-item-wrap" :class="{ 'activity-new': group.isNew }">
+                        <div class="activity-item" :class="headerMsg(group).category" @click="group.messages.length > 1 && $store.game.toggleGroup(group.id)" :style="group.messages.length > 1 ? 'cursor:pointer' : ''">
+                            <span class="activity-icon" x-text="categoryIcon(headerMsg(group).category)"></span>
+                            <span class="activity-text" x-text="headerMsg(group).text"></span>
+                            <span class="activity-group-count" x-show="group.messages.length > 1" x-text="group.messages.length"></span>
+                            <span class="activity-time" x-text="relativeTime(group.timestamp)"></span>
+                            <span class="activity-chevron" x-show="group.messages.length > 1" x-text="group.collapsed ? '\u25B6' : '\u25BC'"></span>
+                        </div>
+                        <div class="activity-group-body" x-show="group.messages.length > 1 && !group.collapsed">
+                            <template x-for="(msg, j) in group.messages" :key="j">
+                                <div class="activity-item nested" :class="msg.category">
+                                    <span class="activity-icon" x-text="categoryIcon(msg.category)"></span>
+                                    <span class="activity-text" x-text="msg.text"></span>
                                 </div>
-                                <div class="activity-group-body" x-show="!group.collapsed" x-transition.opacity>
-                                    <template x-for="(msg, j) in group.messages" :key="j">
-                                        <div class="activity-item nested" :class="msg.category">
-                                            <span class="activity-icon" x-text="categoryIcon(msg.category)"></span>
-                                            <span class="activity-text" x-text="msg.text"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
+                            </template>
+                        </div>
                     </div>
                 </template>
             </div>
@@ -1203,23 +1167,24 @@
         // No-op: character screen handles its own loading via x-effect
     }
 
+    // No-op: error handler removed — debouncing fixes address root cause
 </script>
 
 <script src="alpine.min.js" defer></script>
-<script src="js/auth.js?v=6"></script>
-<script src="js/websocket.js?v=6"></script>
-<script src="js/store.js?v=6"></script>
-<script src="js/components/navbar.js?v=6"></script>
-<script src="js/components/toasts.js?v=6"></script>
-<script src="js/components/modals.js?v=6"></script>
-<script src="js/screens/hub.js?v=6"></script>
-<script src="js/screens/map.js?v=6"></script>
-<script src="js/screens/combat.js?v=6"></script>
-<script src="js/screens/village.js?v=6"></script>
-<script src="js/screens/quests.js?v=6"></script>
-<script src="js/screens/town.js?v=6"></script>
-<script src="js/screens/dungeon.js?v=6"></script>
-<script src="js/screens/stats.js?v=6"></script>
-<script src="js/screens/arena.js?v=6"></script>
+<script src="js/auth.js?v=11"></script>
+<script src="js/websocket.js?v=11"></script>
+<script src="js/store.js?v=11"></script>
+<script src="js/components/navbar.js?v=11"></script>
+<script src="js/components/toasts.js?v=11"></script>
+<script src="js/components/modals.js?v=11"></script>
+<script src="js/screens/hub.js?v=11"></script>
+<script src="js/screens/map.js?v=11"></script>
+<script src="js/screens/combat.js?v=11"></script>
+<script src="js/screens/village.js?v=11"></script>
+<script src="js/screens/quests.js?v=11"></script>
+<script src="js/screens/town.js?v=11"></script>
+<script src="js/screens/dungeon.js?v=11"></script>
+<script src="js/screens/stats.js?v=11"></script>
+<script src="js/screens/arena.js?v=11"></script>
 </body>
 </html>

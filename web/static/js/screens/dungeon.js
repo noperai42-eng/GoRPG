@@ -2,7 +2,7 @@
 function dungeonScreen() {
     return {
         get g() { return this.$store.game; },
-        get p() { return this.$store.game.player; },
+        get p() { return this.$store.game.player || {}; },
         get d() { return this.$store.game.dungeon; },
 
         get isDungeonScreen() {
