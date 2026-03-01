@@ -23,6 +23,40 @@ go test ./pkg/... -count=1
 
 Do NOT commit or push if the build fails or tests fail (except known flaky tests).
 
+## Deployment
+
+**MANDATORY: Always deploy using `deploy.sh`. Never build/deploy manually.**
+
+```bash
+./deploy.sh
+```
+
+`deploy.sh` handles the entire deploy pipeline:
+1. Auto-increments the patch version in `VERSION`
+2. Builds the server binary with the new version baked in via `-ldflags`
+3. Runs smoke tests — aborts if they fail
+4. Starts the server
+
+**Do NOT** manually bump the `VERSION` file, build with ldflags, or run the server binary directly for deployment. All of that is handled by `deploy.sh` to ensure version consistency.
+
+### Post-Deployment: Metrics Review
+
+**MANDATORY: After every deployment, review game metrics and update the feature list.**
+
+1. Capture a fresh metrics snapshot from `game.db` into the tracking database:
+   ```bash
+   # Pull latest metrics from game.db into tracking.db
+   sqlite3 memory/tracking.db  # insert from game.db metrics_snapshots
+   ```
+2. Compare against previous snapshots in `memory/tracking.db` — look for:
+   - Win rate shifts (overall and per-monster-type)
+   - New skill/damage-type usage (or continued absence)
+   - Dungeon clear rate changes
+   - Rarity tier balance changes
+   - Economy anomalies (resource/potion usage)
+3. Record any notable findings as new rows in `balance_observations`
+4. If a balance issue or trend suggests a concrete fix or new feature, **add it to `FEATURES.md`** under the appropriate section with a data-driven rationale (e.g., "will-o-wisp 0.2% win rate → needs stat rebalance")
+
 ### Known Frontend Errors to Watch For
 
 After any change to Go response structs, engine handlers, or JSON payloads, check for these JavaScript runtime errors that indicate null/undefined data being sent to the frontend:

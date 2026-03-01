@@ -150,6 +150,9 @@ func (s *Store) createTables() error {
 	for _, m := range migrations {
 		s.db.Exec(m) // ignore "duplicate column" errors
 	}
+
+	// Add unique index on villages to prevent duplicate rows per (character_id, name).
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_villages_char_name ON villages(character_id, name)`)
 	return nil
 }
 
@@ -388,7 +391,7 @@ func (s *Store) SaveVillage(characterID int64, village models.Village) error {
 	_, err = s.db.Exec(
 		`INSERT INTO villages (character_id, name, data, updated_at)
 		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(id)
+		 ON CONFLICT(character_id, name)
 		 DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP`,
 		characterID, village.Name, string(data),
 	)
@@ -396,6 +399,31 @@ func (s *Store) SaveVillage(characterID int64, village models.Village) error {
 		return fmt.Errorf("failed to save village: %w", err)
 	}
 	return nil
+}
+
+// DeduplicateVillages removes duplicate village rows, keeping only the most
+// recently inserted row (highest id) per (character_id, name) pair.
+// After deduplication it ensures the unique index exists so that future
+// SaveVillage calls can use ON CONFLICT(character_id, name).
+func (s *Store) DeduplicateVillages() (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM villages WHERE id NOT IN (
+			SELECT MAX(id) FROM villages GROUP BY character_id, name
+		)`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to deduplicate villages: %w", err)
+	}
+
+	// Now that duplicates are gone, create the unique index (safe to run
+	// on every startup thanks to IF NOT EXISTS).
+	if _, err := s.db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_villages_char_name ON villages(character_id, name)`,
+	); err != nil {
+		return 0, fmt.Errorf("failed to create villages unique index: %w", err)
+	}
+
+	return res.RowsAffected()
 }
 
 // LoadVillage retrieves a village by character row ID and village name.

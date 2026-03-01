@@ -264,6 +264,38 @@ These features are mentioned in TODO comments in fight-cli.go:
    - Session statistics
    - Historical tracking (total monsters killed, etc.)
 
+### Data-Driven Fixes (from v0.4.12 metrics review)
+
+45. **Fix: Wire up `RecordItemLooted` in combat resolution** [HIGH]
+   - `items_looted` is always 0 because `RecordItemLooted()` is never called in the engine
+   - `resolveCombatWin()` loops over `mob.EquipmentMap` and equips items, but the metrics call is missing
+   - Without this, all item economy analysis is blind — cannot tune drop rates or rarity curves
+   - Data: `items_looted: 0, items_by_rarity: {}` despite thousands of fights
+
+46. **Fix: Add metrics instrumentation to `autoResolveCombat`** [HIGH]
+   - 59% of fights use auto-resolve, which has zero calls to `RecordDamage`, `RecordSkillUse`, or `RecordStatusEffect`
+   - Current metrics only reflect 41% of fights (manual combat path)
+   - This means "only Power Strike used" and "only physical damage" may be inaccurate
+   - Data: `auto_fight_rate: 0.5926`, `skill_usage: {"Power Strike": 1595}` (manual path only)
+
+47. **Fix: Record actual damage types in `RecordDamage` calls** [HIGH]
+   - Both `RecordDamage` calls hardcode `"physical"` regardless of actual damage type
+   - Player skill damage and monster skill damage have no `RecordDamage` call at all
+   - The 3:1 monster-to-player damage asymmetry (572k vs 185k) is partly explained by missing skill damage tracking
+   - Data: `damage_by_type: {"physical": 757974}`, zero elemental damage recorded
+
+48. **Fix: Reduce barrier to elemental skill acquisition** [HIGH]
+   - Players start with only Power Strike (physical). All other skills gated behind Skill Guardian defeats
+   - This is the root cause of three anomalies: only Power Strike used, zero elemental damage, and empty status effects
+   - Options: (a) grant an elemental skill at creation, (b) guarantee early Skill Guardian encounter, (c) tutorial quest for first elemental skill
+   - Data: `skill_usage: {"Power Strike": 1595}`, `status_effects: {}`, `damage_by_type: {"physical": 757974}`
+
+49. **Fix: Rebalance will-o-wisp physical immunity** [HIGH]
+   - Will-o-wisp has `Physical: 0.0` resistance (immune to all physical damage)
+   - Combined with players only having physical skills, it is literally invincible
+   - Options: (a) change physical resistance from 0.0 to 0.25, or (b) ensure elemental skills are available first (item 48)
+   - Data: 1W / 411L (0.24% win rate across 412 fights)
+
 ## Priority Recommendations
 
 Based on the current game state and common player expectations, here are suggested priorities:

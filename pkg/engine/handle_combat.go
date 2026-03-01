@@ -766,6 +766,9 @@ func (e *Engine) handleCombatSkillSelect(session *GameSession, cmd GameCommand) 
 		// Damage skill
 		finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, mob)
 		mob.HitpointsRemaining -= finalDamage
+		if e.metrics != nil {
+			e.metrics.RecordDamage(finalDamage, string(skill.DamageType), true)
+		}
 		if skill.DamageType != models.Physical {
 			resistance := mob.Resistances[skill.DamageType]
 			resistMsg := ""
@@ -967,6 +970,9 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 	for _, item := range mob.EquipmentMap {
 		game.EquipBestItem(item, &player.EquipmentMap, &player.Inventory)
 		msgs = append(msgs, Msg(fmt.Sprintf("Looted: %s", item.Name), "loot"))
+		if e.metrics != nil {
+			e.metrics.RecordItemLooted(item.Rarity)
+		}
 	}
 
 	// Drop beast materials
@@ -981,6 +987,9 @@ func (e *Engine) resolveCombatWin(session *GameSession, msgs []GameMessage) Game
 		bonusItem := game.GenerateItem(lootBonus)
 		game.EquipBestItem(bonusItem, &player.EquipmentMap, &player.Inventory)
 		msgs = append(msgs, Msg(fmt.Sprintf("Bonus loot from %s monster: %s!", rarityDisplay, bonusItem.Name), "loot"))
+		if e.metrics != nil {
+			e.metrics.RecordItemLooted(bonusItem.Rarity)
+		}
 	}
 
 	// 30% chance to get a potion (health, mana, or stamina)
@@ -1475,6 +1484,9 @@ func (e *Engine) processMonsterTurnMsgs(session *GameSession, playerDef int) []G
 			usedSkill = true
 
 			msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s!", mob.Name, skill.Name), "combat"))
+			if e.metrics != nil {
+				e.metrics.RecordSkillUse(skill.Name)
+			}
 
 			if skill.Damage < 0 {
 				// Healing
@@ -1500,10 +1512,16 @@ func (e *Engine) processMonsterTurnMsgs(session *GameSession, playerDef int) []G
 
 				player.HitpointsRemaining -= finalDamage
 				msgs = append(msgs, Msg(fmt.Sprintf("Deals %d damage to %s!", finalDamage, player.Name), "damage"))
+				if e.metrics != nil {
+					e.metrics.RecordDamage(finalDamage, string(skill.DamageType), false)
+				}
 			}
 
 			// Apply skill status effects
 			if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+				if e.metrics != nil {
+					e.metrics.RecordStatusEffect(skill.Effect.Type)
+				}
 				if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" {
 					// Buff on mob
 					mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
@@ -1756,15 +1774,22 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 			switch decision {
 			case "attack":
 				playerAttack := game.MultiRoll(player.AttackRolls) + player.StatsMod.AttackMod
-				if rand.Intn(100) < 15 {
+				isCrit := rand.Intn(100) < 15
+				if isCrit {
 					playerAttack *= 2
 					msgs = append(msgs, Msg("*** CRITICAL HIT! ***", "combat"))
+					if e.metrics != nil {
+						e.metrics.RecordCrit(true)
+					}
 				}
 				mobDef := game.MultiRoll(mob.DefenseRolls) + mob.StatsMod.DefenseMod
 				if playerAttack > mobDef {
 					diff := game.ApplyDamage(playerAttack-mobDef, models.Physical, mob)
 					mob.HitpointsRemaining -= diff
 					msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", player.Name, diff), "damage"))
+					if e.metrics != nil {
+						e.metrics.RecordDamage(diff, "physical", true)
+					}
 				} else {
 					msgs = append(msgs, Msg(fmt.Sprintf("%s's attack missed!", player.Name), "combat"))
 				}
@@ -1774,6 +1799,9 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 						game.UseConsumableItem(item, player)
 						game.RemoveItemFromInventory(&player.Inventory, idx)
 						msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s!", player.Name, item.Name), "heal"))
+						if e.metrics != nil {
+							e.metrics.RecordItemUse(item.Name)
+						}
 						break
 					}
 				}
@@ -1784,6 +1812,9 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 						if skill.Name == skillName && skill.ManaCost <= player.ManaRemaining && skill.StaminaCost <= player.StaminaRemaining {
 							player.ManaRemaining -= skill.ManaCost
 							player.StaminaRemaining -= skill.StaminaCost
+							if e.metrics != nil {
+								e.metrics.RecordSkillUse(skill.Name)
+							}
 							if skill.Damage < 0 {
 								player.HitpointsRemaining += -skill.Damage
 								if player.HitpointsRemaining > player.HitpointsTotal {
@@ -1794,8 +1825,14 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 								finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, mob)
 								mob.HitpointsRemaining -= finalDamage
 								msgs = append(msgs, Msg(fmt.Sprintf("%s uses %s for %d damage!", player.Name, skill.Name, finalDamage), "damage"))
+								if e.metrics != nil {
+									e.metrics.RecordDamage(finalDamage, string(skill.DamageType), true)
+								}
 							}
 							if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+								if e.metrics != nil {
+									e.metrics.RecordStatusEffect(skill.Effect.Type)
+								}
 								if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
 									player.StatusEffects = append(player.StatusEffects, skill.Effect)
 									if skill.Effect.Type == "buff_attack" {
@@ -1828,6 +1865,9 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 				if skill.ManaCost <= mob.ManaRemaining && skill.StaminaCost <= mob.StaminaRemaining {
 					mob.ManaRemaining -= skill.ManaCost
 					mob.StaminaRemaining -= skill.StaminaCost
+					if e.metrics != nil {
+						e.metrics.RecordSkillUse(skill.Name)
+					}
 					if skill.Damage < 0 {
 						mob.HitpointsRemaining += -skill.Damage
 						if mob.HitpointsRemaining > mob.HitpointsTotal {
@@ -1838,9 +1878,15 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 						finalDamage := game.ApplyDamage(skill.Damage, skill.DamageType, player)
 						if finalDamage > playerDef {
 							player.HitpointsRemaining -= (finalDamage - playerDef)
+							if e.metrics != nil {
+								e.metrics.RecordDamage(finalDamage-playerDef, string(skill.DamageType), false)
+							}
 						}
 					}
 					if skill.Effect.Type != "none" && skill.Effect.Duration > 0 {
+						if e.metrics != nil {
+							e.metrics.RecordStatusEffect(skill.Effect.Type)
+						}
 						if skill.Effect.Type == "buff_attack" || skill.Effect.Type == "buff_defense" || skill.Effect.Type == "regen" {
 							mob.StatusEffects = append(mob.StatusEffects, skill.Effect)
 						} else {
@@ -1853,14 +1899,21 @@ func (e *Engine) autoResolveCombat(session *GameSession, msgs []GameMessage) Gam
 			}
 			// Normal attack
 			mobAttack := game.MultiRoll(mob.AttackRolls) + mob.StatsMod.AttackMod
-			if rand.Intn(100) < 10 {
+			isCrit := rand.Intn(100) < 10
+			if isCrit {
 				mobAttack *= 2
+				if e.metrics != nil {
+					e.metrics.RecordCrit(false)
+				}
 			}
 			playerDef := game.MultiRoll(player.DefenseRolls) + player.StatsMod.DefenseMod
 			if mobAttack > playerDef {
 				diff := game.ApplyDamage(mobAttack-playerDef, models.Physical, player)
 				player.HitpointsRemaining -= diff
 				msgs = append(msgs, Msg(fmt.Sprintf("%s attacks for %d damage!", mob.Name, diff), "damage"))
+				if e.metrics != nil {
+					e.metrics.RecordDamage(diff, "physical", false)
+				}
 			}
 		}
 	}

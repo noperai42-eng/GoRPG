@@ -129,6 +129,13 @@ func (e *Engine) CreateDBSession(accountID int64) (string, error) {
 	}
 	if len(locations) > 0 {
 		gameState.GameLocations = locations
+		// Sync caps/types from code definitions and add any new locations.
+		game.SyncLocationCaps(gameState.GameLocations, &gameState)
+		// Enforce level/rarity caps on legacy monsters that should have migrated.
+		game.EnforceLevelCaps(gameState.GameLocations, &gameState)
+		if err := e.store.SaveLocations(gameState.GameLocations); err != nil {
+			fmt.Printf("Failed to save synced locations: %v\n", err)
+		}
 	} else {
 		// Generate initial locations if none exist.
 		game.GenerateGameLocation(&gameState)

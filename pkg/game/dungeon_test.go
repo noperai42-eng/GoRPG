@@ -468,12 +468,13 @@ func TestRoomTypeDistributionNoUnexpectedTypes(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	validTypes := map[string]bool{
-		"combat":   true,
-		"treasure": true,
-		"trap":     true,
-		"rest":     true,
-		"merchant": true,
-		"boss":     true,
+		"combat":        true,
+		"treasure":      true,
+		"investigation": true,
+		"trap":          true,
+		"rest":          true,
+		"merchant":      true,
+		"boss":          true,
 	}
 
 	template := data.DungeonTemplates[1] // Forgotten Crypt: 10 floors
