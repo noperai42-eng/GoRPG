@@ -24,9 +24,9 @@ var rarityMultipliers = map[models.MonsterRarity]RarityMultipliers{
 	models.RarityMythic:    {3000.0, 15, 12, 1500.0, 10},
 }
 
-// rarityWeights defines the base % chance for each rarity.
+// rarityWeights defines the base weighted chance for each rarity out of 100,000.
 // [common, uncommon, rare, epic, legendary, mythic]
-var baseRarityWeights = [6]int{60, 25, 10, 4, 1, 0}
+var baseRarityWeights = [6]int{60000, 25000, 10000, 4000, 999, 1}
 
 var rarityOrder = [6]models.MonsterRarity{
 	models.RarityCommon,
@@ -46,15 +46,15 @@ func RollRarity(rankMax int) models.MonsterRarity {
 	// Shift weights based on rankMax: each point above 1 adds to rarer tiers
 	shift := rankMax - 1
 	if shift > 0 {
-		weights[0] -= shift * 5 // reduce common
-		if weights[0] < 20 {
-			weights[0] = 20
+		weights[0] -= shift * 5000 // reduce common
+		if weights[0] < 20000 {
+			weights[0] = 20000
 		}
-		weights[1] += shift * 2
-		weights[2] += shift * 2
-		weights[3] += shift
-		weights[4] += shift / 2
-		// Mythic only appears via evolution/player-kill upgrades, not random rolls
+		weights[1] += shift * 2000
+		weights[2] += shift * 2000
+		weights[3] += shift * 1000
+		weights[4] += shift * 500
+		// Mythic stays at 1/100,000 — extremely rare natural spawns
 	}
 
 	total := 0

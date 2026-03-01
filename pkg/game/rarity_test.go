@@ -28,8 +28,9 @@ func TestRollRarityDistribution(t *testing.T) {
 			legendaryPct, counts[models.RarityLegendary], iterations)
 	}
 
-	// Verify all five rarities were rolled at least once in 10k iterations
-	for _, rarity := range rarityOrder {
+	// Verify common through legendary were rolled at least once in 10k iterations
+	// (mythic is 1/100,000 so it almost certainly won't appear in 10k rolls)
+	for _, rarity := range rarityOrder[:5] {
 		if counts[rarity] == 0 {
 			t.Errorf("Expected at least one roll of %s in %d iterations", rarity, iterations)
 		}
