@@ -43,3 +43,36 @@ func CurrentGameCalendar() GameCalendar {
 func (gc GameCalendar) FormatGameTime() string {
 	return fmt.Sprintf("Day %d, Cycle %d, Year %d", gc.Day, gc.Cycle, gc.Year)
 }
+
+// MoonPhase represents a phase of the lunar cycle.
+type MoonPhase struct {
+	Name  string `json:"name"`
+	Emoji string `json:"emoji"`
+}
+
+// MoonPhaseFromDay maps a day (1-30) to its lunar phase.
+func MoonPhaseFromDay(day int) MoonPhase {
+	switch {
+	case day <= 2:
+		return MoonPhase{Name: "New Moon", Emoji: "\U0001F311"}
+	case day <= 5:
+		return MoonPhase{Name: "Waxing Crescent", Emoji: "\U0001F312"}
+	case day <= 9:
+		return MoonPhase{Name: "First Quarter", Emoji: "\U0001F313"}
+	case day <= 12:
+		return MoonPhase{Name: "Waxing Gibbous", Emoji: "\U0001F314"}
+	case day <= 17:
+		return MoonPhase{Name: "Full Moon", Emoji: "\U0001F315"}
+	case day <= 20:
+		return MoonPhase{Name: "Waning Gibbous", Emoji: "\U0001F316"}
+	case day <= 24:
+		return MoonPhase{Name: "Last Quarter", Emoji: "\U0001F317"}
+	default:
+		return MoonPhase{Name: "Waning Crescent", Emoji: "\U0001F318"}
+	}
+}
+
+// IsRaidPhase returns true when the tide leader raid is active (day 8+).
+func (gc GameCalendar) IsRaidPhase() bool {
+	return gc.Day >= 8
+}

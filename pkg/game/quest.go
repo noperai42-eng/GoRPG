@@ -8,8 +8,8 @@ import (
 
 // CheckQuestProgress evaluates all active quests for the player and completes
 // any that have met their requirements, granting rewards and activating the
-// next quest in the chain.
-func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
+// next quest in the chain. Returns the list of quest IDs that were completed.
+func CheckQuestProgress(player *models.Character, gameState *models.GameState) []string {
 	if gameState.AvailableQuests == nil {
 		gameState.AvailableQuests = make(map[string]models.Quest)
 		for k, v := range data.StoryQuests {
@@ -25,6 +25,8 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 		player.ActiveQuests = []string{"quest_1_training"}
 	}
 
+	var completed []string
+
 	for _, questID := range player.ActiveQuests {
 		quest, exists := gameState.AvailableQuests[questID]
 		if !exists {
@@ -34,6 +36,9 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 		switch quest.Requirement.Type {
 		case "level":
 			quest.Requirement.CurrentValue = player.Level
+		case "location":
+			// CurrentValue is incremented by combat victory at the target location;
+			// no auto-update needed here.
 		case "village_level":
 			if gameState.Villages != nil && player.VillageName != "" {
 				if village, ok := gameState.Villages[player.VillageName]; ok {
@@ -48,6 +53,8 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 			quest.Requirement.CurrentValue = total
 		case "skill_count":
 			quest.Requirement.CurrentValue = len(player.LearnedSkills)
+		case "elder_rescued":
+			// CurrentValue is set directly by combat encounter; no auto-update needed.
 		}
 
 		if quest.Requirement.CurrentValue >= quest.Requirement.TargetValue {
@@ -59,6 +66,7 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 			gameState.AvailableQuests[questID] = quest
 
 			player.CompletedQuests = append(player.CompletedQuests, questID)
+			completed = append(completed, questID)
 
 			newActive := []string{}
 			for _, aid := range player.ActiveQuests {
@@ -70,6 +78,27 @@ func CheckQuestProgress(player *models.Character, gameState *models.GameState) {
 
 			ActivateNextQuest(player, gameState, questID)
 		} else {
+			gameState.AvailableQuests[questID] = quest
+		}
+	}
+
+	return completed
+}
+
+// IncrementLocationQuestProgress increments the CurrentValue for any active
+// "location" type quest that matches the given location name. Called on combat
+// victory at a location.
+func IncrementLocationQuestProgress(player *models.Character, gameState *models.GameState, locationName string) {
+	if gameState.AvailableQuests == nil || player.ActiveQuests == nil {
+		return
+	}
+	for _, questID := range player.ActiveQuests {
+		quest, exists := gameState.AvailableQuests[questID]
+		if !exists {
+			continue
+		}
+		if quest.Requirement.Type == "location" && quest.Requirement.TargetName == locationName {
+			quest.Requirement.CurrentValue++
 			gameState.AvailableQuests[questID] = quest
 		}
 	}
@@ -96,10 +125,11 @@ func ActivateNextQuest(player *models.Character, gameState *models.GameState, co
 	// Main story chain + village/crafting chain.
 	// Some quests branch into multiple next quests (e.g. quest_1 → quest_2 + quest_v1).
 	nextQuestMap := map[string][]string{
-		"quest_1_training": {"quest_2_explore", "quest_v1_village"},
+		"quest_1_training": {"quest_2_explore", "quest_v0_elder"},
 		"quest_2_explore":  {"quest_3_boss"},
 		"quest_3_boss":     {"quest_4_master"},
 		"quest_4_master":   {"quest_5_ascension"},
+		"quest_v0_elder":   {"quest_v1_village"},
 		"quest_v1_village": {"quest_v2_harvest"},
 		"quest_v2_harvest": {"quest_v3_potion"},
 		"quest_v3_potion":  {"quest_v4_armor", "quest_v6_skills"},
@@ -113,8 +143,13 @@ func ActivateNextQuest(player *models.Character, gameState *models.GameState, co
 	}
 
 	for _, nextQuestID := range nextQuestIDs {
+		// Skip if already completed or already active
+		if Contains(player.CompletedQuests, nextQuestID) || Contains(player.ActiveQuests, nextQuestID) {
+			continue
+		}
+
 		nextQuest, exists := gameState.AvailableQuests[nextQuestID]
-		if !exists {
+		if !exists || nextQuest.Completed {
 			continue
 		}
 
@@ -126,6 +161,95 @@ func ActivateNextQuest(player *models.Character, gameState *models.GameState, co
 		fmt.Printf("\n\U0001F4DC New Quest: %s\n", nextQuest.Name)
 		fmt.Printf("   %s\n", nextQuest.Description)
 	}
+}
+
+// BackfillQuests ensures existing characters have all quests they should based
+// on their CompletedQuests history. When new quests are added to the chain,
+// characters who already completed a prerequisite won't get the new quest
+// unless this backfill runs. Returns the number of quests activated.
+func BackfillQuests(player *models.Character, gameState *models.GameState) int {
+	if gameState.AvailableQuests == nil {
+		gameState.AvailableQuests = make(map[string]models.Quest)
+		for k, v := range data.StoryQuests {
+			gameState.AvailableQuests[k] = v
+		}
+	}
+
+	// Ensure new quests from code are present in the game state.
+	for id, quest := range data.StoryQuests {
+		if _, exists := gameState.AvailableQuests[id]; !exists {
+			gameState.AvailableQuests[id] = quest
+		}
+	}
+
+	if player.CompletedQuests == nil {
+		player.CompletedQuests = []string{}
+	}
+	if player.ActiveQuests == nil {
+		player.ActiveQuests = []string{"quest_1_training"}
+	}
+
+	// Deduplicate CompletedQuests (fixes legacy data from pre-guard ActivateNextQuest)
+	seen := make(map[string]bool)
+	deduped := player.CompletedQuests[:0]
+	for _, q := range player.CompletedQuests {
+		if !seen[q] {
+			seen[q] = true
+			deduped = append(deduped, q)
+		}
+	}
+	player.CompletedQuests = deduped
+
+	// Deduplicate ActiveQuests
+	seen = make(map[string]bool)
+	dedupedActive := player.ActiveQuests[:0]
+	for _, q := range player.ActiveQuests {
+		if !seen[q] {
+			seen[q] = true
+			dedupedActive = append(dedupedActive, q)
+		}
+	}
+	player.ActiveQuests = dedupedActive
+
+	nextQuestMap := map[string][]string{
+		"quest_1_training": {"quest_2_explore", "quest_v0_elder"},
+		"quest_2_explore":  {"quest_3_boss"},
+		"quest_3_boss":     {"quest_4_master"},
+		"quest_4_master":   {"quest_5_ascension"},
+		"quest_v0_elder":   {"quest_v1_village"},
+		"quest_v1_village": {"quest_v2_harvest"},
+		"quest_v2_harvest": {"quest_v3_potion"},
+		"quest_v3_potion":  {"quest_v4_armor", "quest_v6_skills"},
+		"quest_v4_armor":   {"quest_v5_weapon"},
+		"quest_v5_weapon":  {"quest_v7_scrolls"},
+	}
+
+	activated := 0
+	for _, completedID := range player.CompletedQuests {
+		nextIDs, ok := nextQuestMap[completedID]
+		if !ok {
+			continue
+		}
+		for _, nextID := range nextIDs {
+			// Skip if already completed or already active
+			if Contains(player.CompletedQuests, nextID) || Contains(player.ActiveQuests, nextID) {
+				continue
+			}
+			quest, exists := gameState.AvailableQuests[nextID]
+			if !exists {
+				continue
+			}
+			if quest.Completed {
+				continue
+			}
+			quest.Active = true
+			gameState.AvailableQuests[nextID] = quest
+			player.ActiveQuests = append(player.ActiveQuests, nextID)
+			activated++
+		}
+	}
+
+	return activated
 }
 
 // ShowQuestLog displays the player's active and completed quests with

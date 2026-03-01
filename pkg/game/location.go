@@ -26,48 +26,8 @@ func GenerateMonstersForLocation(location *models.Location, game *models.GameSta
 		location.Monsters[i] = GenerateBestMonster(game, location.LevelMax, location.RarityMax)
 		location.Monsters[i].LocationName = location.Name
 	}
-
-	// Add Skill Guardians based on location level
-	// Higher level locations have more guardians
-	numGuardians := 0
-	if location.LevelMax >= 10 && location.LevelMax < 30 {
-		numGuardians = 1 // Low level areas: 1 guardian
-	} else if location.LevelMax >= 30 && location.LevelMax < 100 {
-		numGuardians = 2 // Mid level areas: 2 guardians
-	} else if location.LevelMax >= 100 {
-		numGuardians = 3 // High level areas: 3 guardians
-	}
-
-	// Spawn guardians if location is suitable
-	if numGuardians > 0 && len(data.AvailableSkills) > 0 {
-		// Create a list of available skills (excluding Tracking and Power Strike)
-		guardableSkills := []models.Skill{}
-		for _, skill := range data.AvailableSkills {
-			if skill.Name != "Tracking" && skill.Name != "Power Strike" {
-				guardableSkills = append(guardableSkills, skill)
-			}
-		}
-
-		// Randomly place guardians
-		for g := 0; g < numGuardians && len(guardableSkills) > 0; g++ {
-			// Pick random position
-			guardianPos := rand.Intn(len(location.Monsters))
-
-			// Pick random skill from guardable skills
-			skillIndex := rand.Intn(len(guardableSkills))
-			guardianSkill := guardableSkills[skillIndex]
-
-			// Guardians spawn above location level — they're elite fights
-			guardianLevel := location.LevelMax + rand.Intn(location.LevelMax/2+1) + 3
-
-			guardian := GenerateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
-			guardian.LocationName = location.Name
-			location.Monsters[guardianPos] = guardian
-
-			fmt.Printf("Spawned %s (Lv%d) guarding %s at %s\n",
-				guardian.Name, guardian.Level, guardianSkill.Name, location.Name)
-		}
-	}
+	// Skill Guardians now spawn dynamically during combat (1% encounter chance)
+	// rather than being pre-placed in locations.
 }
 
 // SyncLocationCaps updates saved locations to match code-defined caps and adds

@@ -252,7 +252,22 @@ func ProcessLocationEvolution(loc *models.Location, gs *models.GameState) []Evol
 
 	// Place winner back (if not migrated)
 	if winner != nil {
-		loc.Monsters[winnerIdx] = *winner
+		// Safety net: if winner exceeds location caps despite migration attempts,
+		// replace with a fresh monster to prevent cap violations.
+		overLevel := loc.LevelMax > 0 && winner.Level > loc.LevelMax
+		overRarity := loc.RarityMax > 0 && RarityIndex(winner.Rarity) > loc.RarityMax
+		if overLevel || overRarity {
+			freshMob := GenerateBestMonster(gs, loc.LevelMax, loc.RarityMax)
+			freshMob.LocationName = loc.Name
+			loc.Monsters[winnerIdx] = freshMob
+			events = append(events, EvolutionEvent{
+				EventType:    "cap_enforce",
+				LocationName: loc.Name,
+				Details:      fmt.Sprintf("%s (Lv%d, %s) replaced — exceeded %s caps (Lv%d/R%d)", winner.Name, winner.Level, RarityDisplayName(winner.Rarity), loc.Name, loc.LevelMax, loc.RarityMax),
+			})
+		} else {
+			loc.Monsters[winnerIdx] = *winner
+		}
 	}
 
 	// Replace loser with a fresh monster

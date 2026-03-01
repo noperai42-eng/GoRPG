@@ -345,6 +345,25 @@ func (e *Engine) handleMainMenu(session *GameSession, cmd GameCommand) GameRespo
 		if gs.Villages == nil {
 			gs.Villages = make(map[string]models.Village)
 		}
+		// Gate: village requires elder rescue quest unless player already has a village
+		_, hasVillage := gs.Villages[player.VillageName]
+		if !hasVillage && !game.Contains(player.CompletedQuests, "quest_v0_elder") {
+			msgs := []GameMessage{
+				Msg("You must first rescue a Village Elder from the Lake Ruins.", "narrative"),
+				Msg("Hunt at Lake Ruins to find and rescue a captive elder.", "narrative"),
+			}
+			if game.Contains(player.ActiveQuests, "quest_v0_elder") {
+				msgs = append(msgs, Msg("Quest Active: The Lost Elder", "narrative"))
+			} else {
+				msgs = append(msgs, Msg("Complete 'The First Trial' quest to unlock this quest.", "narrative"))
+			}
+			return GameResponse{
+				Type:     "menu",
+				Messages: msgs,
+				State:    &StateData{Screen: "main_menu", Player: MakePlayerState(player)},
+				Options:  []MenuOption{Opt("back", "Return to Main Menu")},
+			}
+		}
 		village, exists := gs.Villages[player.VillageName]
 		if !exists {
 			village = game.GenerateVillage(player.Name)
@@ -626,6 +645,26 @@ func (e *Engine) startCombat(session *GameSession, location *models.Location, mo
 	if session.Combat != nil {
 		guardianLocName = session.Combat.GuardianLocationName
 		continuousHunt = session.Combat.ContinuousHunt
+	}
+
+	// 1% chance to dynamically spawn a skill guardian (skip for location guardian fights)
+	if guardianLocName == "" && !mob.IsSkillGuardian && location != nil && location.LevelMax >= 10 && rand.Intn(100) < 1 {
+		guardableSkills := []models.Skill{}
+		for _, skill := range data.AvailableSkills {
+			if skill.Name != "Tracking" && skill.Name != "Power Strike" {
+				guardableSkills = append(guardableSkills, skill)
+			}
+		}
+		if len(guardableSkills) > 0 {
+			guardianSkill := guardableSkills[rand.Intn(len(guardableSkills))]
+			guardianLevel := location.LevelMax + rand.Intn(location.LevelMax/2+1) + 3
+			mob = game.GenerateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
+			mob.LocationName = location.Name
+			fmt.Printf("[Guardian] Spawned %s guardian at %s\n", guardianSkill.Name, location.Name)
+			if e.metrics != nil {
+				e.metrics.RecordGuardianSpawn(guardianSkill.Name)
+			}
+		}
 	}
 
 	session.Combat = &CombatContext{
@@ -915,6 +954,27 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 		msgs = append(msgs, Msg(fmt.Sprintf("RESURRECTION #%d", player.Resurrections), "system"))
 	}
 
+	// 1% chance to dynamically spawn a skill guardian
+	if location != nil && location.LevelMax >= 10 && rand.Intn(100) < 1 {
+		guardableSkills := []models.Skill{}
+		for _, skill := range data.AvailableSkills {
+			if skill.Name != "Tracking" && skill.Name != "Power Strike" {
+				guardableSkills = append(guardableSkills, skill)
+			}
+		}
+		if len(guardableSkills) > 0 {
+			guardianSkill := guardableSkills[rand.Intn(len(guardableSkills))]
+			guardianLevel := location.LevelMax + rand.Intn(location.LevelMax/2+1) + 3
+			guardian := game.GenerateSkillGuardian(guardianSkill, guardianLevel, location.RarityMax)
+			guardian.LocationName = locationName
+			*mob = guardian
+			fmt.Printf("[Guardian] Spawned %s guardian at %s (autoplay)\n", guardianSkill.Name, locationName)
+			if e.metrics != nil {
+				e.metrics.RecordGuardianSpawn(guardianSkill.Name)
+			}
+		}
+	}
+
 	// Restore resources at start
 	player.ManaRemaining = player.ManaTotal
 	player.StaminaRemaining = player.StaminaTotal
@@ -1153,11 +1213,31 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 
 		msgs = append(msgs, Msg(fmt.Sprintf("  VICTORY! (+%d XP)", xpGained), "combat"))
 
-		// Handle skill guardian reward -- auto-take scroll in auto-play
+		// Handle skill guardian reward -- auto-learn/upgrade in auto-play
 		if mob.IsSkillGuardian {
-			scroll := game.CreateSkillScroll(mob.GuardedSkill)
-			player.Inventory = append(player.Inventory, scroll)
-			msgs = append(msgs, Msg(fmt.Sprintf("  SKILL GUARDIAN DEFEATED! Received %s", scroll.Name), "loot"))
+			if e.metrics != nil {
+				e.metrics.RecordGuardianDefeat(mob.GuardedSkill.Name)
+			}
+			existingIdx := -1
+			for i, s := range player.LearnedSkills {
+				if s.Name == mob.GuardedSkill.Name {
+					existingIdx = i
+					break
+				}
+			}
+			if existingIdx >= 0 {
+				game.UpgradeSkill(&player.LearnedSkills[existingIdx])
+				msgs = append(msgs, Msg(fmt.Sprintf("  SKILL GUARDIAN DEFEATED! %s upgraded! (+5 dmg, -2 cost) [+%d]", mob.GuardedSkill.Name, player.LearnedSkills[existingIdx].UpgradeCount), "loot"))
+				if e.metrics != nil {
+					e.metrics.RecordSkillUpgraded(mob.GuardedSkill.Name)
+				}
+			} else {
+				player.LearnedSkills = append(player.LearnedSkills, mob.GuardedSkill)
+				msgs = append(msgs, Msg(fmt.Sprintf("  SKILL GUARDIAN DEFEATED! Learned %s!", mob.GuardedSkill.Name), "loot"))
+				if e.metrics != nil {
+					e.metrics.RecordSkillLearned(mob.GuardedSkill.Name)
+				}
+			}
 		}
 
 		// Loot equipment
@@ -1180,20 +1260,35 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 			player.Inventory = append(player.Inventory, potion)
 		}
 
-		// 15% chance to rescue a villager
+		// 15% chance to rescue a villager (only after elder quest completed) or get a hint
 		if rand.Intn(100) < 15 {
-			if gs.Villages == nil {
-				gs.Villages = make(map[string]models.Village)
+			if !game.Contains(player.CompletedQuests, "quest_v0_elder") {
+				msgs = append(msgs, Msg("  You hear rumors of a Village Elder held captive in the Lake Ruins...", "narrative"))
+			} else {
+				if gs.Villages == nil {
+					gs.Villages = make(map[string]models.Village)
+				}
+				village, exists := gs.Villages[player.VillageName]
+				if !exists {
+					village = game.GenerateVillage(player.Name)
+					player.VillageName = player.Name + "'s Village"
+				}
+				game.RescueVillager(&village)
+				village.Experience += 25
+				gs.Villages[player.VillageName] = village
+				msgs = append(msgs, Msg("  A villager was rescued! (+25 Village XP)", "narrative"))
 			}
-			village, exists := gs.Villages[player.VillageName]
-			if !exists {
-				village = game.GenerateVillage(player.Name)
-				player.VillageName = player.Name + "'s Village"
+		}
+
+		// Elder rescue: 20% chance at Lake Ruins if quest active
+		if locationName == "Lake Ruins" && game.Contains(player.ActiveQuests, "quest_v0_elder") {
+			if rand.Intn(100) < 20 {
+				if q, ok := gs.AvailableQuests["quest_v0_elder"]; ok {
+					q.Requirement.CurrentValue = 1
+					gs.AvailableQuests["quest_v0_elder"] = q
+					msgs = append(msgs, Msg("  You found a Village Elder held captive! They agree to help you establish a village.", "narrative"))
+				}
 			}
-			game.RescueVillager(&village)
-			village.Experience += 25
-			gs.Villages[player.VillageName] = village
-			msgs = append(msgs, Msg("  A villager was rescued! (+25 Village XP)", "narrative"))
 		}
 
 		// 15% chance to discover a new location
@@ -1258,8 +1353,16 @@ func (e *Engine) autoPlayOneFight(session *GameSession, player *models.Character
 	game.LevelUpMob(&loc.Monsters[mobLoc])
 	gs.GameLocations[locationName] = loc
 
+	// Increment location quest progress on combat victory
+	game.IncrementLocationQuestProgress(player, gs, locationName)
+
 	// Check quest progress
-	game.CheckQuestProgress(player, gs)
+	completedQuests := game.CheckQuestProgress(player, gs)
+	if e.metrics != nil {
+		for _, qid := range completedQuests {
+			e.metrics.RecordQuestComplete(qid)
+		}
+	}
 
 	// Process guard recovery
 	if gs.Villages != nil {
@@ -1682,6 +1785,10 @@ func buildPlayerStatsMessages(player *models.Character, gs *models.GameState) []
 		msgs = append(msgs, Msg("", "system"))
 		msgs = append(msgs, Msg("--- Learned Skills ---", "system"))
 		for _, skill := range player.LearnedSkills {
+			skillLabel := skill.Name
+			if skill.UpgradeCount > 0 {
+				skillLabel += fmt.Sprintf(" +%d", skill.UpgradeCount)
+			}
 			costStr := ""
 			if skill.ManaCost > 0 {
 				costStr += fmt.Sprintf("%dMP ", skill.ManaCost)
@@ -1689,7 +1796,7 @@ func buildPlayerStatsMessages(player *models.Character, gs *models.GameState) []
 			if skill.StaminaCost > 0 {
 				costStr += fmt.Sprintf("%dSP ", skill.StaminaCost)
 			}
-			msgs = append(msgs, Msg(fmt.Sprintf("  %s [%s] - %s", skill.Name, costStr, skill.Description), "system"))
+			msgs = append(msgs, Msg(fmt.Sprintf("  %s [%s] - %s", skillLabel, costStr, skill.Description), "system"))
 		}
 	}
 
@@ -1804,6 +1911,9 @@ func buildQuestLogMessages(player *models.Character, gs *models.GameState) []Gam
 		case "skill_count":
 			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d skills learned",
 				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
+		case "elder_rescued":
+			msgs = append(msgs, Msg(fmt.Sprintf("    Progress: %d / %d elders rescued",
+				quest.Requirement.CurrentValue, quest.Requirement.TargetValue), "narrative"))
 		}
 
 		msgs = append(msgs, Msg(fmt.Sprintf("    Reward: %d XP", quest.Reward.XP), "narrative"))
@@ -1905,7 +2015,11 @@ func buildSkillsMessages(player *models.Character) []GameMessage {
 	} else {
 		for i, skill := range player.LearnedSkills {
 			msgs = append(msgs, Msg("", "system"))
-			msgs = append(msgs, Msg(fmt.Sprintf("%d. %s", i+1, skill.Name), "system"))
+			skillLabel := skill.Name
+			if skill.UpgradeCount > 0 {
+				skillLabel += fmt.Sprintf(" +%d", skill.UpgradeCount)
+			}
+			msgs = append(msgs, Msg(fmt.Sprintf("%d. %s", i+1, skillLabel), "system"))
 
 			if skill.ManaCost > 0 {
 				msgs = append(msgs, Msg(fmt.Sprintf("   Cost: %d MP", skill.ManaCost), "system"))

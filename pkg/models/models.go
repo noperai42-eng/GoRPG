@@ -206,13 +206,14 @@ type StatusEffect struct {
 }
 
 type Skill struct {
-	Name        string       `json:"name"`
-	ManaCost    int          `json:"mana_cost"`
-	StaminaCost int          `json:"stamina_cost"`
-	Damage      int          `json:"damage"`
-	DamageType  DamageType   `json:"damage_type"`
-	Effect      StatusEffect `json:"effect"`
-	Description string       `json:"description"`
+	Name         string       `json:"name"`
+	ManaCost     int          `json:"mana_cost"`
+	StaminaCost  int          `json:"stamina_cost"`
+	Damage       int          `json:"damage"`
+	DamageType   DamageType   `json:"damage_type"`
+	Effect       StatusEffect `json:"effect"`
+	Description  string       `json:"description"`
+	UpgradeCount int          `json:"upgrade_count"`
 }
 
 type Monster struct {
@@ -515,6 +516,23 @@ type NPCQuestReward struct {
 	Gold       int `json:"gold"`
 	Reputation int `json:"reputation"`
 	ItemRarity int `json:"item_rarity,omitempty"`
+}
+
+// TideLeader is a global world boss that all villages raid together.
+type TideLeader struct {
+	Name               string   `json:"name"`
+	Level              int      `json:"level"`
+	HitpointsTotal     int      `json:"hitpoints_total"`
+	HitpointsRemaining int      `json:"hitpoints_remaining"`
+	AttackRolls        int      `json:"attack_rolls"`
+	DefenseRolls       int      `json:"defense_rolls"`
+	CycleYear          int      `json:"cycle_year"`
+	CycleSeason        int      `json:"cycle_season"`
+	TimesUndefeated    int      `json:"times_undefeated"`
+	Defeated           bool     `json:"defeated"`
+	TotalDamageDealt   int      `json:"total_damage_dealt"`
+	RaidParticipants   []string `json:"raid_participants"`
+	LastRaidDay        int      `json:"last_raid_day"`
 }
 
 // MostWantedEntry represents a monster on the Most Wanted board.

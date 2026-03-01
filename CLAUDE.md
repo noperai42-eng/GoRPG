@@ -57,6 +57,18 @@ Do NOT commit or push if the build fails or tests fail (except known flaky tests
 3. Record any notable findings as new rows in `balance_observations`
 4. If a balance issue or trend suggests a concrete fix or new feature, **add it to `FEATURES.md`** under the appropriate section with a data-driven rationale (e.g., "will-o-wisp 0.2% win rate → needs stat rebalance")
 
+### Backward Compatibility: Features with Dependencies
+
+**MANDATORY: When adding new features that depend on prerequisite completion (quests, unlocks, gated content), always account for existing characters.**
+
+Existing characters who already passed a prerequisite stage will never trigger the new downstream content unless a migration/backfill runs. The pattern:
+
+1. **Quest chains**: New quests added to `nextQuestMap` in `quest.go` must also be handled by `BackfillQuests()` in the same file. `BackfillQuests` runs on every session creation (`CreateDBSession` in `engine.go`) and activates any missing downstream quests based on `CompletedQuests` history.
+2. **Gated features**: If a feature gate checks for quest completion (like village access checking `quest_v0_elder`), add a bypass for characters who already have the feature (e.g., already own a village).
+3. **New quest requirement types**: If adding a new `Requirement.Type`, ensure `CheckQuestProgress` has a `case` for it, and if the value is set externally (like combat encounters), wire it up in both manual combat (`handle_combat.go`) and autoplay (`handle_menu.go`).
+
+When in doubt: if a character could logically have already earned access to the new content, they should get it automatically on next login.
+
 ### Known Frontend Errors to Watch For
 
 After any change to Go response structs, engine handlers, or JSON payloads, check for these JavaScript runtime errors that indicate null/undefined data being sent to the frontend:

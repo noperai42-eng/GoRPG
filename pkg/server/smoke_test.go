@@ -213,7 +213,7 @@ func TestArenaFlow(t *testing.T) {
 }
 
 func TestSmoke(t *testing.T) {
-	_, ts := setupTestServer(t)
+	srv, ts := setupTestServer(t)
 	token := registerAndLogin(t, ts, "smokeuser", "smokepass1")
 	ws := connectWS(t, ts, token)
 	defer ws.Close()
@@ -293,8 +293,26 @@ func TestSmoke(t *testing.T) {
 		t.Log("HuntFlow OK")
 	})
 
-	// 3. VillageFlow — send "10" → verify village_main → send "0" (back) → main_menu.
+	// 3. VillageFlow — complete elder quest via DB, then send "10" → verify village_main → send "0" → main_menu.
 	t.Run("VillageFlow", func(t *testing.T) {
+		// New characters are gated behind quest_v0_elder. Complete it via DB.
+		acct, _ := srv.store.GetAccountByUsername("smokeuser")
+		if acct != nil {
+			charNames, _ := srv.store.ListCharacters(acct.ID)
+			if len(charNames) > 0 {
+				ch, _ := srv.store.LoadCharacter(acct.ID, charNames[0])
+				ch.CompletedQuests = append(ch.CompletedQuests, "quest_v0_elder")
+				srv.store.SaveCharacter(acct.ID, ch)
+			}
+		}
+		// Reload session by reconnecting — re-init is simpler.
+		// Instead, just set the quest in the engine's active session.
+		for _, sess := range srv.engine.GetAllSessions() {
+			if sess.Player != nil {
+				sess.Player.CompletedQuests = append(sess.Player.CompletedQuests, "quest_v0_elder")
+			}
+		}
+
 		sendCommand(t, ws, "select", "10")
 		resp := readGameResponse(t, ws)
 		requireScreen(t, resp, "village_main", "enter village")

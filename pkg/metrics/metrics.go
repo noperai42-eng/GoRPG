@@ -43,6 +43,11 @@ type MetricsCollector struct {
 	TideDefeats         atomic.Int64
 	VillageManagerTicks atomic.Int64
 	VillagesManaged     atomic.Int64
+	QuestCompletions    atomic.Int64
+	GuardianSpawns      atomic.Int64
+	GuardianDefeats     atomic.Int64
+	SkillsLearned       atomic.Int64
+	SkillsUpgraded      atomic.Int64
 	OnlinePlayers     atomic.Int64
 
 	// Distribution maps (single mutex)
@@ -64,7 +69,12 @@ type MetricsCollector struct {
 	ArenaTotalByGap   map[string]int64
 	FloorDeaths       map[string]int64
 	FloorClears       map[string]int64
-	FeatureUsage      map[string]int64
+	FeatureUsage           map[string]int64
+	QuestCompletionsByID   map[string]int64
+	GuardianSpawnsBySkill  map[string]int64
+	GuardianDefeatsBySkill map[string]int64
+	SkillsLearnedByName    map[string]int64
+	SkillsUpgradedByName   map[string]int64
 }
 
 // NewMetricsCollector creates a new MetricsCollector with initialized maps.
@@ -88,7 +98,12 @@ func NewMetricsCollector() *MetricsCollector {
 		ArenaTotalByGap:     make(map[string]int64),
 		FloorDeaths:         make(map[string]int64),
 		FloorClears:         make(map[string]int64),
-		FeatureUsage:        make(map[string]int64),
+		FeatureUsage:           make(map[string]int64),
+		QuestCompletionsByID:   make(map[string]int64),
+		GuardianSpawnsBySkill:  make(map[string]int64),
+		GuardianDefeatsBySkill: make(map[string]int64),
+		SkillsLearnedByName:    make(map[string]int64),
+		SkillsUpgradedByName:   make(map[string]int64),
 	}
 }
 
@@ -293,6 +308,46 @@ func (mc *MetricsCollector) RecordTideOutcome(victory bool) {
 	}
 }
 
+// RecordQuestComplete records a quest completion.
+func (mc *MetricsCollector) RecordQuestComplete(questID string) {
+	mc.QuestCompletions.Add(1)
+	mc.mu.Lock()
+	mc.QuestCompletionsByID[questID]++
+	mc.mu.Unlock()
+}
+
+// RecordGuardianSpawn records a guardian spawn event.
+func (mc *MetricsCollector) RecordGuardianSpawn(skillName string) {
+	mc.GuardianSpawns.Add(1)
+	mc.mu.Lock()
+	mc.GuardianSpawnsBySkill[skillName]++
+	mc.mu.Unlock()
+}
+
+// RecordGuardianDefeat records a guardian defeat event.
+func (mc *MetricsCollector) RecordGuardianDefeat(skillName string) {
+	mc.GuardianDefeats.Add(1)
+	mc.mu.Lock()
+	mc.GuardianDefeatsBySkill[skillName]++
+	mc.mu.Unlock()
+}
+
+// RecordSkillLearned records a skill being learned from a guardian.
+func (mc *MetricsCollector) RecordSkillLearned(skillName string) {
+	mc.SkillsLearned.Add(1)
+	mc.mu.Lock()
+	mc.SkillsLearnedByName[skillName]++
+	mc.mu.Unlock()
+}
+
+// RecordSkillUpgraded records a skill being upgraded from a duplicate guardian.
+func (mc *MetricsCollector) RecordSkillUpgraded(skillName string) {
+	mc.SkillsUpgraded.Add(1)
+	mc.mu.Lock()
+	mc.SkillsUpgradedByName[skillName]++
+	mc.mu.Unlock()
+}
+
 // RecordVillageManagerTick records a village manager processing tick.
 func (mc *MetricsCollector) RecordVillageManagerTick(villagesManaged int) {
 	mc.VillageManagerTicks.Add(1)
@@ -314,6 +369,20 @@ type MetricsSnapshot struct {
 	Dungeons      DungeonMetrics         `json:"dungeons"`
 	Engagement    EngagementMetrics      `json:"engagement"`
 	Village       VillageMetrics         `json:"village"`
+	Quests        QuestMetrics           `json:"quests"`
+	Guardians     GuardianMetrics        `json:"guardians"`
+}
+
+// GuardianMetrics holds guardian spawn and skill acquisition data.
+type GuardianMetrics struct {
+	TotalSpawns        int64            `json:"total_spawns"`
+	TotalDefeats       int64            `json:"total_defeats"`
+	TotalSkillsLearned int64            `json:"total_skills_learned"`
+	TotalSkillsUpgraded int64           `json:"total_skills_upgraded"`
+	SpawnsBySkill      map[string]int64 `json:"spawns_by_skill"`
+	DefeatsBySkill     map[string]int64 `json:"defeats_by_skill"`
+	LearnedByName      map[string]int64 `json:"learned_by_name"`
+	UpgradedByName     map[string]int64 `json:"upgraded_by_name"`
 }
 
 // CombatMetrics holds combat-related aggregates.
@@ -388,6 +457,12 @@ type EngagementMetrics struct {
 	FeatureUsage map[string]int64 `json:"feature_usage"`
 }
 
+// QuestMetrics holds quest completion data.
+type QuestMetrics struct {
+	TotalCompletions int64            `json:"total_completions"`
+	CompletionsByID  map[string]int64 `json:"completions_by_id"`
+}
+
 // VillageMetrics holds village and tide-related aggregates.
 type VillageMetrics struct {
 	TideTicks           int64   `json:"tide_ticks"`
@@ -443,6 +518,11 @@ func (mc *MetricsCollector) Snapshot() MetricsSnapshot {
 	floorDeaths := copyMap(mc.FloorDeaths)
 	floorClears := copyMap(mc.FloorClears)
 	featureUsage := copyMap(mc.FeatureUsage)
+	questCompletions := copyMap(mc.QuestCompletionsByID)
+	guardianSpawnsBySkill := copyMap(mc.GuardianSpawnsBySkill)
+	guardianDefeatsBySkill := copyMap(mc.GuardianDefeatsBySkill)
+	skillsLearnedByName := copyMap(mc.SkillsLearnedByName)
+	skillsUpgradedByName := copyMap(mc.SkillsUpgradedByName)
 
 	arenaByGap := make(map[string]ArenaGapStats)
 	for bucket, wins := range mc.ArenaWinsByGap {
@@ -504,6 +584,10 @@ func (mc *MetricsCollector) Snapshot() MetricsSnapshot {
 		Engagement: EngagementMetrics{
 			FeatureUsage: featureUsage,
 		},
+		Quests: QuestMetrics{
+			TotalCompletions: mc.QuestCompletions.Load(),
+			CompletionsByID:  questCompletions,
+		},
 		Village: func() VillageMetrics {
 			tideTicks := mc.TideTicks.Load()
 			tidesProcessed := mc.TidesProcessed.Load()
@@ -521,6 +605,16 @@ func (mc *MetricsCollector) Snapshot() MetricsSnapshot {
 				VillagesManaged:     mc.VillagesManaged.Load(),
 			}
 		}(),
+		Guardians: GuardianMetrics{
+			TotalSpawns:        mc.GuardianSpawns.Load(),
+			TotalDefeats:       mc.GuardianDefeats.Load(),
+			TotalSkillsLearned: mc.SkillsLearned.Load(),
+			TotalSkillsUpgraded: mc.SkillsUpgraded.Load(),
+			SpawnsBySkill:      guardianSpawnsBySkill,
+			DefeatsBySkill:     guardianDefeatsBySkill,
+			LearnedByName:      skillsLearnedByName,
+			UpgradedByName:     skillsUpgradedByName,
+		},
 	}
 }
 

@@ -26,6 +26,8 @@ document.addEventListener('alpine:init', () => {
         _autoHuntTimer: null,    // timer ID for auto-hunt delay
         version: '',             // server version string
         gameTime: '',            // in-game calendar display
+        moonPhase: null,         // {name, emoji} from server
+        raidActive: false,       // true when tide leader raid phase is active
         leaderboard: null,       // leaderboard entries from API
         leaderboardCategory: 'kills', // current leaderboard category
         mostWanted: null,        // most wanted monster entries from API
@@ -44,6 +46,8 @@ document.addEventListener('alpine:init', () => {
                 fetch('/api/version').then(r => r.json()).then(d => {
                     if (d.version) Alpine.store('game').version = 'v' + d.version;
                     if (d.game_time) Alpine.store('game').gameTime = d.game_time;
+                    if (d.moon_phase) Alpine.store('game').moonPhase = d.moon_phase;
+                    if (d.raid_active !== undefined) Alpine.store('game').raidActive = d.raid_active;
                 }).catch(() => {});
             };
             fetchVersion();

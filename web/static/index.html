@@ -155,6 +155,7 @@
                 </template>
             </div>
             <div class="nav-actions">
+                <span class="version-label" x-show="$store.game.moonPhase" x-text="$store.game.moonPhase ? $store.game.moonPhase.emoji : ''" style="font-size: 0.9rem; margin-right: 0.25rem;" :title="$store.game.moonPhase ? $store.game.moonPhase.name + ($store.game.raidActive ? ' (Raid Active!)' : '') : ''"></span>
                 <span class="version-label" x-show="$store.game.gameTime" x-text="$store.game.gameTime" style="color: var(--text-muted); font-size: 0.7rem; margin-right: 0.5rem;"></span>
                 <span class="version-label" x-text="$store.game.version" style="color: var(--text-muted); font-size: 0.7rem; margin-right: 0.5rem;"></span>
                 <button class="btn btn-ghost btn-sm" @click="disconnect">Disconnect</button>
@@ -480,6 +481,20 @@
                                     </div>
                                 </template>
                             </div>
+                        </div>
+
+                        <!-- Tide Leader -->
+                        <div class="card" x-show="v?.tide_leader">
+                            <div class="section-header" x-text="v?.tide_leader?.defeated ? 'Tide Leader (Defeated)' : 'Tide Leader'"></div>
+                            <div class="stat-row"><span class="stat-label">Name</span><span class="stat-value" x-text="v?.tide_leader?.name || '???'"></span></div>
+                            <div class="stat-row"><span class="stat-label">Level</span><span class="stat-value" x-text="v?.tide_leader?.level || 0"></span></div>
+                            <div class="bar-container" x-show="!v?.tide_leader?.defeated">
+                                <div class="bar-label"><span class="bar-label-name">HP</span><span class="bar-label-value" x-text="(v?.tide_leader?.hp || 0) + '/' + (v?.tide_leader?.max_hp || 0)"></span></div>
+                                <div class="bar bar-sm"><div class="bar-fill hp" :style="'width:' + barPct(v?.tide_leader?.hp || 0, v?.tide_leader?.max_hp || 1)"></div></div>
+                            </div>
+                            <div class="stat-row" x-show="v?.tide_leader?.times_undefeated > 0"><span class="stat-label">Undefeated Streak</span><span class="stat-value" style="color: var(--color-danger);" x-text="v?.tide_leader?.times_undefeated + ' cycles'"></span></div>
+                            <div class="stat-row"><span class="stat-label">Villages Raiding</span><span class="stat-value" x-text="v?.tide_leader?.participants || 0"></span></div>
+                            <div class="stat-row"><span class="stat-label">Raid Status</span><span class="stat-value" :style="'color:' + (v?.tide_leader?.raid_active ? 'var(--color-danger)' : 'var(--text-muted)')" x-text="v?.tide_leader?.defeated ? 'Defeated!' : (v?.tide_leader?.raid_active ? 'ACTIVE' : 'Waiting...')"></span></div>
                         </div>
                     </div>
 

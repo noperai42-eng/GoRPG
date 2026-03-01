@@ -155,6 +155,17 @@ func (e *Engine) CreateDBSession(accountID int64) (string, error) {
 		}
 	}
 
+	// Backfill missing quests for existing characters.
+	// When new quests are added to the chain, characters who already completed
+	// a prerequisite need the new downstream quests activated.
+	for name, ch := range gameState.CharactersMap {
+		activated := game.BackfillQuests(&ch, &gameState)
+		if activated > 0 {
+			fmt.Printf("[QuestBackfill] %s: activated %d missing quests\n", name, activated)
+		}
+		gameState.CharactersMap[name] = ch
+	}
+
 	// If no characters exist, create a default one.
 	if len(gameState.CharactersMap) == 0 {
 		player := game.GenerateCharacter("Temp", 1, 1)
@@ -643,6 +654,9 @@ func (e *Engine) ProcessEvolutionTick() *EvolutionTickResult {
 	// Need a GameState for monster generation in ProcessLocationEvolution
 	gs := &models.GameState{GameLocations: locations}
 
+	// Enforce level/rarity caps before evolution to clean up any violations
+	game.EnforceLevelCaps(locations, gs)
+
 	var allEvents []game.EvolutionEvent
 	for locName, loc := range locations {
 		events := game.ProcessLocationEvolution(&loc, gs)
@@ -779,6 +793,183 @@ func (e *Engine) ProcessAutoTideTick() *AutoTideTickResult {
 		e.metrics.RecordTideTick(tidesProcessed)
 	}
 	return &AutoTideTickResult{TidesProcessed: tidesProcessed}
+}
+
+// TideLeaderTickResult holds the results of a tide leader processing tick.
+type TideLeaderTickResult struct {
+	LeaderSpawned  bool
+	RaidProcessed  bool
+	LeaderDefeated bool
+	Messages       []string
+}
+
+// ProcessTideLeaderTick manages the global tide leader lifecycle each tick.
+func (e *Engine) ProcessTideLeaderTick() *TideLeaderTickResult {
+	if e.store == nil {
+		return nil
+	}
+
+	cal := CurrentGameCalendar()
+	dayID := cal.Year*1000 + cal.Cycle*100 + cal.Day
+
+	leader, err := e.store.LoadTideLeader()
+	if err != nil {
+		fmt.Printf("[TideLeader] Failed to load: %v\n", err)
+		return nil
+	}
+
+	result := &TideLeaderTickResult{}
+
+	// Check if we need a new leader (new cycle or no leader)
+	if leader == nil || leader.CycleYear != cal.Year || leader.CycleSeason != cal.Cycle {
+		timesUndefeated := 0
+		if leader != nil && !leader.Defeated {
+			timesUndefeated = leader.TimesUndefeated + 1
+		}
+
+		newLeader := game.GenerateTideLeader(cal.Year, cal.Cycle, timesUndefeated)
+		leader = &newLeader
+		result.LeaderSpawned = true
+
+		if err := e.store.SaveTideLeader(*leader); err != nil {
+			fmt.Printf("[TideLeader] Failed to save new leader: %v\n", err)
+			return nil
+		}
+
+		fmt.Printf("[TideLeader] New leader spawned: %s (Lv%d, HP %d, streak %d)\n",
+			leader.Name, leader.Level, leader.HitpointsTotal, leader.TimesUndefeated)
+
+		// Apply tide scaling consequences if there's an undefeated streak
+		if timesUndefeated > 0 {
+			villages, loadErr := e.store.LoadAllVillages()
+			if loadErr == nil {
+				for _, vwo := range villages {
+					game.ScaleTidesForUndefeated(&vwo.Village, timesUndefeated)
+					if saveErr := e.store.SaveVillage(vwo.CharacterID, vwo.Village); saveErr != nil {
+						fmt.Printf("[TideLeader] Failed to save scaled village: %v\n", saveErr)
+					}
+				}
+				fmt.Printf("[TideLeader] Scaled tides for %d villages (streak %d)\n",
+					len(villages), timesUndefeated)
+			}
+		}
+	}
+
+	// Skip if leader already defeated this cycle
+	if leader.Defeated {
+		return result
+	}
+
+	// Skip if raid not active yet (day < 8)
+	if !cal.IsRaidPhase() {
+		return result
+	}
+
+	// Skip if already processed this day
+	if leader.LastRaidDay >= dayID {
+		return result
+	}
+
+	// Process raid day
+	result.RaidProcessed = true
+	leader.LastRaidDay = dayID
+
+	villages, err := e.store.LoadAllVillages()
+	if err != nil {
+		fmt.Printf("[TideLeader] Failed to load villages for raid: %v\n", err)
+		return result
+	}
+
+	for _, vwo := range villages {
+		if len(vwo.Village.ActiveGuards) == 0 && len(vwo.Village.Defenses) == 0 {
+			continue // Skip villages with no defenses
+		}
+
+		// Load player level for attack power calculation
+		char, charErr := e.store.LoadCharacter(vwo.AccountID, vwo.CharacterName)
+		playerLevel := 1
+		if charErr == nil {
+			playerLevel = char.Level
+		}
+
+		raidResult := game.ProcessTideLeaderRaid(leader, &vwo.Village, playerLevel)
+
+		// Save updated village
+		if saveErr := e.store.SaveVillage(vwo.CharacterID, vwo.Village); saveErr != nil {
+			fmt.Printf("[TideLeader] Failed to save village after raid: %v\n", saveErr)
+		}
+
+		// Build broadcast messages
+		msgs := []GameMessage{}
+		for _, m := range raidResult.Messages {
+			msgs = append(msgs, Msg(m, "combat"))
+		}
+		msgs = append(msgs, Msg(fmt.Sprintf("Tide Leader HP: %d / %d",
+			leader.HitpointsRemaining, leader.HitpointsTotal), "system"))
+
+		resp := GameResponse{
+			Type:     "tide_leader_raid",
+			Messages: msgs,
+			State: &StateData{
+				Screen:  "tide_leader_raid",
+				Village: MakeVillageView(&vwo.Village),
+			},
+		}
+		e.broadcastToAccount(vwo.AccountID, resp)
+
+		result.Messages = append(result.Messages, raidResult.Messages...)
+
+		if raidResult.LeaderDefeated {
+			result.LeaderDefeated = true
+			// Distribute rewards to all participants
+			for _, pVwo := range villages {
+				if !game.Contains(leader.RaidParticipants, pVwo.Village.Name) {
+					continue
+				}
+				pChar, pErr := e.store.LoadCharacter(pVwo.AccountID, pVwo.CharacterName)
+				if pErr != nil {
+					continue
+				}
+				xp, gold := game.TideLeaderDefeatReward(&pChar, leader)
+				if saveErr := e.store.SaveCharacter(pVwo.AccountID, pChar); saveErr != nil {
+					fmt.Printf("[TideLeader] Failed to save rewarded character: %v\n", saveErr)
+				}
+
+				rewardMsgs := []GameMessage{
+					Msg(fmt.Sprintf("The %s has been defeated! All villages celebrate!", leader.Name), "loot"),
+					Msg(fmt.Sprintf("Reward: +%d XP, +%d Gold", xp, gold), "loot"),
+				}
+				rewardResp := GameResponse{
+					Type:     "tide_leader_defeated",
+					Messages: rewardMsgs,
+					State: &StateData{
+						Screen: "tide_leader_defeated",
+						Player: MakePlayerState(&pChar),
+					},
+				}
+				e.broadcastToAccount(pVwo.AccountID, rewardResp)
+
+				// Update in-memory sessions
+				e.mu.RLock()
+				for _, sess := range e.sessions {
+					if sess.AccountID == pVwo.AccountID && sess.Player != nil && sess.Player.Name == pVwo.CharacterName {
+						sess.Player.Experience = pChar.Experience
+						sess.Player.ResourceStorageMap = pChar.ResourceStorageMap
+						sess.GameState.CharactersMap[pChar.Name] = pChar
+					}
+				}
+				e.mu.RUnlock()
+			}
+			break // Leader defeated, stop processing villages
+		}
+	}
+
+	// Save updated leader
+	if err := e.store.SaveTideLeader(*leader); err != nil {
+		fmt.Printf("[TideLeader] Failed to save leader after raid: %v\n", err)
+	}
+
+	return result
 }
 
 // VillageManagerTickResult holds the results of a village manager tick.
@@ -929,6 +1120,17 @@ func (e *Engine) RenameSessionCharacter(sessionID, oldName, newName string) erro
 	session.GameState.CharactersMap[newName] = char
 
 	return nil
+}
+
+// GetAllSessions returns all active sessions (for testing/admin).
+func (e *Engine) GetAllSessions() []*GameSession {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	sessions := make([]*GameSession, 0, len(e.sessions))
+	for _, s := range e.sessions {
+		sessions = append(sessions, s)
+	}
+	return sessions
 }
 
 // RemoveSession removes a session from the engine.

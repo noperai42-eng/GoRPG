@@ -54,8 +54,22 @@ var StoryQuests = map[string]models.Quest{
 		Active:      false,
 	},
 
-	// --- Village & Crafting Tutorial Chain ---
+	// --- Village Elder Rescue (gates village access) ---
 	// Activates after quest_1_training completes (alongside quest_2_explore).
+
+	"quest_v0_elder": {
+		ID:          "quest_v0_elder",
+		Name:        "The Lost Elder",
+		Description: "Rumors say a Village Elder is being held captive in the Lake Ruins. Hunt there to find and rescue them.",
+		Type:        "rescue",
+		Requirement: models.QuestRequirement{Type: "elder_rescued", TargetValue: 1, TargetName: "Lake Ruins", CurrentValue: 0},
+		Reward:      models.QuestReward{Type: "unlock_feature", Value: "village", XP: 200},
+		Completed:   false,
+		Active:      false,
+	},
+
+	// --- Village & Crafting Tutorial Chain ---
+	// quest_v0_elder must be completed before quest_v1_village activates.
 
 	"quest_v1_village": {
 		ID:          "quest_v1_village",

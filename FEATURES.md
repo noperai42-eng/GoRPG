@@ -264,6 +264,12 @@ These features are mentioned in TODO comments in fight-cli.go:
    - Session statistics
    - Historical tracking (total monsters killed, etc.)
 
+### Shipped in v0.4.16
+
+- **Lunar Calendar** — Moon phases (8 phases across 30-day cycle), raid phase indicator (day >= 8), moon emoji in navbar
+- **Global Tide Leader** — Persistent world boss raided by all villages, scales with undefeated streak, defeat rewards distributed to participants
+- **Village Elder Rescue Quest** — Village access gated behind `quest_v0_elder`, elder found at Lake Ruins (20% per combat win), villager rescue also gated behind elder completion
+
 ### Data-Driven Fixes (from v0.4.12 metrics review)
 
 45. **Fix: Wire up `RecordItemLooted` in combat resolution** [HIGH]
@@ -295,6 +301,32 @@ These features are mentioned in TODO comments in fight-cli.go:
    - Combined with players only having physical skills, it is literally invincible
    - Options: (a) change physical resistance from 0.0 to 0.25, or (b) ensure elemental skills are available first (item 48)
    - Data: 1W / 411L (0.24% win rate across 412 fights)
+
+### Data-Driven Fixes (from v0.4.16 metrics review)
+
+50. **Fix: Bot account duplication on server restart** [MEDIUM]
+   - Server creates new bot accounts with random suffixes on every restart
+   - 79 total accounts (77 bot, 2 human) for only 7 bot names — ~11 restarts worth of duplicates
+   - Creates 69 villages (most orphaned duplicates), polluting leaderboards and arena
+   - Fix: Query existing `bot_%` accounts before creating new ones
+   - Data: `accounts: 79, bot: 77, human: 2, villages: 69`
+
+51. **Fix: Metrics snapshot frequency** [MEDIUM]
+   - Only 1 unique metrics snapshot exists (from Feb 28), despite multiple deploys since
+   - Cannot track trends or measure impact of balance changes
+   - Server may not be writing periodic snapshots, or the ticker interval is too long
+   - Data: `snapshots_in_gamedb: 1, last_snapshot: 2026-02-28`
+
+52. **Fix: Rarity curve too steep — Epic/Legendary/Mythic unwinnable** [HIGH]
+   - Mythic: 0% win rate (0W/34L), Legendary: 10.1% (7W/62L), Epic: 17.7% (23W/107L)
+   - Combined with item 48 (no elemental skills), high-rarity monsters are effectively impossible
+   - Options: (a) reduce stat scaling per rarity tier, (b) cap rarity based on player level, (c) add flee-on-death protection
+   - Data: `mythic_wr: 0%, legendary_wr: 10.1%, epic_wr: 17.7%`
+
+53. **Fix: Crit rates below design targets** [LOW]
+   - Player crit rate: 8.5% (target 15%), Monster crit rate: 4.8% (target 10%)
+   - May be due to defend actions or auto-resolve not tracking crits
+   - Data: `player_crit_rate: 0.085, monster_crit_rate: 0.048`
 
 ## Priority Recommendations
 

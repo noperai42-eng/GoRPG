@@ -130,7 +130,9 @@ func (e *Engine) handleVillageMain(session *GameSession, cmd GameCommand) GameRe
 	}
 
 	session.State = StateVillageMain
-	return buildVillageMainResponse(session, extraMsgs)
+	resp := buildVillageMainResponse(session, extraMsgs)
+	e.enrichVillageWithTideLeader(&resp)
+	return resp
 }
 
 func (e *Engine) handleVillageViewVillagers(session *GameSession, cmd GameCommand) GameResponse {
@@ -1591,6 +1593,28 @@ func (e *Engine) handleVillageViewDefenses(session *GameSession, cmd GameCommand
 	}
 }
 
+// enrichVillageWithTideLeader loads the tide leader from the DB and attaches it to the village view.
+func (e *Engine) enrichVillageWithTideLeader(resp *GameResponse) {
+	if e.store == nil || resp.State == nil || resp.State.Village == nil {
+		return
+	}
+	leader, err := e.store.LoadTideLeader()
+	if err != nil || leader == nil {
+		return
+	}
+	cal := CurrentGameCalendar()
+	resp.State.Village.TideLeader = &TideLeaderView{
+		Name:            leader.Name,
+		Level:           leader.Level,
+		HP:              leader.HitpointsRemaining,
+		MaxHP:           leader.HitpointsTotal,
+		TimesUndefeated: leader.TimesUndefeated,
+		Defeated:        leader.Defeated,
+		Participants:    len(leader.RaidParticipants),
+		RaidActive:      cal.IsRaidPhase(),
+	}
+}
+
 func (e *Engine) handleVillageCheckTide(session *GameSession, cmd GameCommand) GameResponse {
 	village := session.SelectedVillage
 
@@ -1599,25 +1623,53 @@ func (e *Engine) handleVillageCheckTide(session *GameSession, cmd GameCommand) G
 		return e.handleVillageMain(session, GameCommand{Type: "init"})
 	}
 
+	cal := CurrentGameCalendar()
+	moon := MoonPhaseFromDay(cal.Day)
+
 	msgs := []GameMessage{
 		Msg("============================================================", "system"),
 		Msg("MONSTER TIDE STATUS", "system"),
 		Msg("============================================================", "system"),
+		Msg("", "system"),
+		Msg(fmt.Sprintf("%s %s  |  %s", moon.Emoji, moon.Name, cal.FormatGameTime()), "narrative"),
 	}
+
+	if cal.IsRaidPhase() {
+		msgs = append(msgs, Msg("RAID PHASE ACTIVE - The tide leader is vulnerable!", "combat"))
+	} else {
+		msgs = append(msgs, Msg(fmt.Sprintf("Raid begins on Day 8 (current: Day %d)", cal.Day), "system"))
+	}
+
+	// Show tide leader info
+	if e.store != nil {
+		leader, err := e.store.LoadTideLeader()
+		if err == nil && leader != nil {
+			msgs = append(msgs, Msg("", "system"))
+			if leader.Defeated {
+				msgs = append(msgs, Msg(fmt.Sprintf("Tide Leader: %s (DEFEATED)", leader.Name), "loot"))
+			} else {
+				msgs = append(msgs, Msg(fmt.Sprintf("Tide Leader: %s (Lv%d)", leader.Name, leader.Level), "combat"))
+				msgs = append(msgs, Msg(fmt.Sprintf("HP: %d / %d", leader.HitpointsRemaining, leader.HitpointsTotal), "combat"))
+				if leader.TimesUndefeated > 0 {
+					msgs = append(msgs, Msg(fmt.Sprintf("Undefeated Streak: %d cycles", leader.TimesUndefeated), "damage"))
+				}
+				msgs = append(msgs, Msg(fmt.Sprintf("Villages raiding: %d", len(leader.RaidParticipants)), "system"))
+			}
+		}
+	}
+
+	msgs = append(msgs, Msg("", "system"))
 
 	currentTime := time.Now().Unix()
 	timeSinceLastTide := currentTime - village.LastTideTime
 	timeUntilNext := village.TideInterval - int(timeSinceLastTide)
 
 	if timeUntilNext <= 0 {
-		msgs = append(msgs, Msg("", "system"))
 		msgs = append(msgs, Msg("MONSTER TIDE IS READY!", "combat"))
-		msgs = append(msgs, Msg("", "system"))
 		msgs = append(msgs, Msg("A wave of monsters can attack your village!", "system"))
 	} else {
 		hours := timeUntilNext / 3600
 		minutes := (timeUntilNext % 3600) / 60
-		msgs = append(msgs, Msg("", "system"))
 		msgs = append(msgs, Msg(fmt.Sprintf("Next Monster Tide in: %d hours, %d minutes", hours, minutes), "system"))
 	}
 

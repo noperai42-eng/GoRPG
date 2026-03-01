@@ -133,6 +133,10 @@ func (s *Store) createTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metrics_snap_time ON metrics_snapshots(snapshot_time)`,
+		`CREATE TABLE IF NOT EXISTS tide_leader (
+			id   INTEGER PRIMARY KEY CHECK (id = 1),
+			data TEXT NOT NULL
+		)`,
 	}
 
 	for _, stmt := range statements {
@@ -866,4 +870,51 @@ func (s *Store) GetMetricsHistory(since time.Time, limit int) ([]MetricsSnapshot
 		snapshots = append(snapshots, snap)
 	}
 	return snapshots, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// TideLeader methods
+// ---------------------------------------------------------------------------
+
+// SaveTideLeader upserts the global tide leader (single-row table, id=1).
+func (s *Store) SaveTideLeader(leader models.TideLeader) error {
+	data, err := json.Marshal(leader)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tide leader: %w", err)
+	}
+	_, err = s.db.Exec(
+		"INSERT OR REPLACE INTO tide_leader (id, data) VALUES (1, ?)",
+		string(data),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save tide leader: %w", err)
+	}
+	return nil
+}
+
+// LoadTideLeader retrieves the current global tide leader.
+// Returns nil and no error if no leader exists.
+func (s *Store) LoadTideLeader() (*models.TideLeader, error) {
+	var data string
+	err := s.db.QueryRow("SELECT data FROM tide_leader WHERE id = 1").Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tide leader: %w", err)
+	}
+	var leader models.TideLeader
+	if err := json.Unmarshal([]byte(data), &leader); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tide leader: %w", err)
+	}
+	return &leader, nil
+}
+
+// DeleteTideLeader removes the tide leader record.
+func (s *Store) DeleteTideLeader() error {
+	_, err := s.db.Exec("DELETE FROM tide_leader WHERE id = 1")
+	if err != nil {
+		return fmt.Errorf("failed to delete tide leader: %w", err)
+	}
+	return nil
 }

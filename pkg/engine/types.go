@@ -150,6 +150,18 @@ type QuestView struct {
 	Completed   bool   `json:"completed"`
 }
 
+// TideLeaderView represents the global tide leader for the frontend.
+type TideLeaderView struct {
+	Name            string `json:"name"`
+	Level           int    `json:"level"`
+	HP              int    `json:"hp"`
+	MaxHP           int    `json:"max_hp"`
+	TimesUndefeated int    `json:"times_undefeated"`
+	Defeated        bool   `json:"defeated"`
+	Participants    int    `json:"participants"`
+	RaidActive      bool   `json:"raid_active"`
+}
+
 // VillageView represents village state for the frontend.
 type VillageView struct {
 	Name             string              `json:"name"`
@@ -164,6 +176,7 @@ type VillageView struct {
 	UnlockedCrafting []string            `json:"unlocked_crafting"`
 	ResourcePerTick  map[string]int      `json:"resource_per_tick"`
 	LastHarvestTime  int64               `json:"last_harvest_time"`
+	TideLeader       *TideLeaderView     `json:"tide_leader,omitempty"`
 }
 
 // VillagerView represents a villager for the frontend.

@@ -163,6 +163,23 @@ func NewServer(store *db.Store, authService *auth.AuthService, staticDir string,
 		}
 	}()
 
+	// Tide leader ticker — global raid processing every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			result := s.engine.ProcessTideLeaderTick()
+			if result != nil && (result.LeaderSpawned || result.RaidProcessed) {
+				if result.LeaderSpawned {
+					log.Printf("[TideLeader] New leader spawned")
+				}
+				if result.LeaderDefeated {
+					log.Printf("[TideLeader] Leader defeated!")
+				}
+			}
+		}
+	}()
+
 	// Auto-spawn default AI agents after a brief startup delay.
 	go s.agentMgr.SpawnDefaultAgents()
 
@@ -331,10 +348,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // handleVersion handles GET /api/version.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	cal := engine.CurrentGameCalendar()
+	moon := engine.MoonPhaseFromDay(cal.Day)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"version":   s.version,
-		"game_time": cal.FormatGameTime(),
-		"calendar":  cal,
+		"version":    s.version,
+		"game_time":  cal.FormatGameTime(),
+		"calendar":   cal,
+		"moon_phase": moon,
+		"raid_active": cal.IsRaidPhase(),
 	})
 }
 
